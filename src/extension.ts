@@ -33,8 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
       { label: '🌨️  Snow Grains', value: 'snow-grains' },
       { label: '🌨️  Snow Showers', value: 'snow-showers' },
       { label: '⛈️  Thunderstorm', value: 'thunderstorm' },
-      { label: '⛈️  Thunderstorm with Hail', value: 'thunderstorm-hail' },
-      { label: '🌐  Real weather data', value: 'real' }
+      { label: '⛈️  Thunderstorm with Hail', value: 'thunderstorm-hail' }
     ]
 
     const pick = await vscode.window.showQuickPick(conditions, {
@@ -150,7 +149,7 @@ class WeathrViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [this.context.extensionUri]
     }
-    view.title = this.placement === 'explorer' ? 'Weather 🌦️' : 'Weathr 🌦️'
+    view.title = 'Weathr 🌦️'
     WeathrPanel.attachView(view, this.context)
   }
 }

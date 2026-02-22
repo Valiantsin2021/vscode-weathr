@@ -196,6 +196,7 @@
       "explorer": [
         {
           "type": "webview",
+          "icon": "media/icon.svg",
           "id": "vscode-weathr.explorerView",
           "name": "Weathr"
         }
@@ -203,6 +204,7 @@
       "weathr-panel": [
         {
           "type": "webview",
+          "icon": "media/icon.svg",
           "id": "vscode-weathr.weatherView",
           "name": "Weather Scene"
         }

@@ -67,9 +67,9 @@ All settings are under `vscode-weathr.*` in VS Code Settings:
   "vscode-weathr.location.auto": false,
   "vscode-weathr.location.latitude": 40.7128,
   "vscode-weathr.location.longitude": -74.0060,
-  "vscode-weathr.units.temperature": "fahrenheit",
-  "vscode-weathr.units.windSpeed": "mph",
-  "vscode-weathr.units.precipitation": "inch"
+  "vscode-weathr.units.temperature": "celsius",
+  "vscode-weathr.units.windSpeed": "kmh",
+  "vscode-weathr.units.precipitation": "mm"
 }
 ```
 
