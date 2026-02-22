@@ -11,14 +11,15 @@ export interface WeathrConfig {
   precipitationUnit: 'mm' | 'inch'
   showLeaves: boolean
   animationSpeed: 'slow' | 'normal' | 'fast'
-  theme: 'auto' | 'dark' | 'light'
+  theme: 'auto' | 'dark' | 'light',
+  pixelMode: boolean
 }
 
 export function getConfig(): WeathrConfig {
   const cfg = vscode.workspace.getConfiguration('vscode-weathr')
   return {
-    latitude: cfg.get<number>('location.latitude', 52.52),
-    longitude: cfg.get<number>('location.longitude', 13.41),
+    latitude: cfg.get<number>('location.latitude', 36.5965),
+    longitude: cfg.get<number>('location.longitude', 4.5198),
     autoLocation: cfg.get<boolean>('location.auto', true),
     hideLocation: cfg.get<boolean>('location.hide', false),
     hideHUD: cfg.get<boolean>('hideHUD', false),
@@ -27,6 +28,7 @@ export function getConfig(): WeathrConfig {
     precipitationUnit: cfg.get<'mm' | 'inch'>('units.precipitation', 'mm'),
     showLeaves: cfg.get<boolean>('showLeaves', false),
     animationSpeed: cfg.get<'slow' | 'normal' | 'fast'>('animationSpeed', 'normal'),
+    pixelMode: cfg.get<boolean>('pixelMode', false),
     theme: cfg.get<'auto' | 'dark' | 'light'>('theme', 'auto')
   }
 }

@@ -51,21 +51,31 @@
         "command": "vscode-weathr.switchPanel",
         "title": "Switch to Editor Tab",
         "category": "Weathr"
+      },
+      {
+        "command": "vscode-weathr.togglePixelMode",
+        "title": "Weathr: Toggle Pixel Mode",
+        "category": "Weathr"
       }
     ],
     "configuration": {
       "title": "Weathr",
       "properties": {
+        "vscode-weathr.pixelMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render weather in retro pixel art style"
+        },
         "vscode-weathr.location.latitude": {
           "type": "number",
-          "default": 52.52,
+          "default": 36.5965,
           "minimum": -90,
           "maximum": 90,
           "description": "Latitude for weather location."
         },
         "vscode-weathr.location.longitude": {
           "type": "number",
-          "default": 13.41,
+          "default": 4.5198,
           "minimum": -180,
           "maximum": 180,
           "description": "Longitude for weather location."

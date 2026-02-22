@@ -90,6 +90,17 @@ export function activate(context: vscode.ExtensionContext) {
     }
   })
 
+  // ── Pixel mode switch ─────────────────────────────────
+
+  const togglePixelCmd = vscode.commands.registerCommand('vscode-weathr.togglePixelMode', async () => {
+    const cfg = vscode.workspace.getConfiguration('vscode-weathr')
+    const cur = cfg.get<boolean>('pixelMode', false)
+    await cfg.update('pixelMode', !cur, vscode.ConfigurationTarget.Global)
+    vscode.window.showInformationMessage(`Weathr: Pixel mode ${!cur ? 'enabled' : 'disabled'}`)
+    ensurePanel(context)
+    WeathrPanel.currentPanel?.updateConfig()
+  })
+
   // ── Register both WebView providers ────────────────────────────────────
 
   // 1) Bottom panel view
@@ -108,7 +119,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   )
 
-  context.subscriptions.push(startCmd, refreshCmd, simulateCmd, toggleHUDCmd, toggleLeavesCmd, switchPanelCmd, cfgWatcher)
+  context.subscriptions.push(startCmd, refreshCmd, simulateCmd, toggleHUDCmd, toggleLeavesCmd, switchPanelCmd, cfgWatcher, togglePixelCmd)
 }
 
 export function deactivate() {

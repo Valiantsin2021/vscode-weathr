@@ -56,6 +56,23 @@ All settings are under `vscode-weathr.*` in VS Code Settings:
 - **Snow**: snow, snow-grains, snow-showers
 - **Storms**: thunderstorm, thunderstorm-hail
 
+## Configuration Example
+
+- Open Command Palette (Ctrl+Shift+P)
+- Run Preferences: Open User Settings (JSON)
+- Add your settings, e.g.:
+
+```json
+{
+  "vscode-weathr.location.auto": false,
+  "vscode-weathr.location.latitude": 40.7128,
+  "vscode-weathr.location.longitude": -74.0060,
+  "vscode-weathr.units.temperature": "fahrenheit",
+  "vscode-weathr.units.windSpeed": "mph",
+  "vscode-weathr.units.precipitation": "inch"
+}
+```
+
 ## Privacy
 
 When `location.auto` is `true`, a request is made to `ipinfo.io` to determine your approximate location. Set `location.auto` to `false` and configure latitude/longitude manually to avoid this.
