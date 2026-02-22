@@ -73,6 +73,7 @@ export function activate(context: vscode.ExtensionContext) {
     const cur = cfg.get<boolean>('showLeaves', false)
     await cfg.update('showLeaves', !cur, vscode.ConfigurationTarget.Global)
     vscode.window.showInformationMessage(`Weathr: Falling leaves ${!cur ? 'enabled' : 'disabled'}`)
+    ensurePanel(context)
     WeathrPanel.currentPanel?.updateConfig()
   })
 
