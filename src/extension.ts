@@ -99,10 +99,10 @@ export function activate(context: vscode.ExtensionContext) {
     })
   )
 
-  // 2) Activity-bar sidebar view
-  const sidebarProvider = new WeathrViewProvider(context, 'sidebar')
+  // 2) Explorer view
+  const explorerProvider = new WeathrViewProvider(context, 'explorer')
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('vscode-weathr.sidebarView', sidebarProvider, {
+    vscode.window.registerWebviewViewProvider('vscode-weathr.explorerView', explorerProvider, {
       webviewOptions: { retainContextWhenHidden: true }
     })
   )
@@ -130,7 +130,7 @@ function ensurePanel(context: vscode.ExtensionContext) {
 class WeathrViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly context: vscode.ExtensionContext,
-    private readonly placement: 'panel' | 'sidebar'
+    private readonly placement: 'panel' | 'explorer'
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -138,7 +138,7 @@ class WeathrViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [this.context.extensionUri]
     }
-    view.title = this.placement === 'sidebar' ? 'Weather 🌦️' : 'Weathr 🌦️'
+    view.title = this.placement === 'explorer' ? 'Weather 🌦️' : 'Weathr 🌦️'
     WeathrPanel.attachView(view, this.context)
   }
 }

@@ -174,13 +174,6 @@
       }
     },
     "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "weathr-sidebar",
-          "title": "Weathr",
-          "icon": "media/icon.svg"
-        }
-      ],
       "panel": [
         {
           "id": "weathr-panel",
@@ -190,11 +183,11 @@
       ]
     },
     "views": {
-      "weathr-sidebar": [
+      "explorer": [
         {
           "type": "webview",
-          "id": "vscode-weathr.sidebarView",
-          "name": "Weather"
+          "id": "vscode-weathr.explorerView",
+          "name": "Weathr"
         }
       ],
       "weathr-panel": [

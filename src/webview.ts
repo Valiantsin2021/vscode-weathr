@@ -1,5 +1,5 @@
-import * as vscode from 'vscode';
-import { WeathrConfig } from './config';
+import * as vscode from 'vscode'
+import { WeathrConfig } from './config'
 
 export function getWebviewContent(
   webview: vscode.Webview,
@@ -8,10 +8,10 @@ export function getWebviewContent(
   simulateCondition: string | null,
   simulateNight: boolean
 ): string {
-  const configJson = JSON.stringify(config);
-  const simulateJson = JSON.stringify({ condition: simulateCondition, night: simulateNight });
+  const configJson = JSON.stringify(config)
+  const simulateJson = JSON.stringify({ condition: simulateCondition, night: simulateNight })
 
-  return /* html */`<!DOCTYPE html>
+  return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -239,6 +239,7 @@ function spawnFlake(init){
     vx:(Math.random()-.5)*.8,
     wobble:Math.random()*Math.PI*2,
     wobbleSpd:Math.random()*.06+.02,
+    wobbleAmp:Math.random()*1.8+.6,
     angle:Math.random()*Math.PI*2,
     spin:(Math.random()-.5)*.06
   });
@@ -919,14 +920,32 @@ function hideLoad(){ load.classList.add('gone'); }
 // ============================================================
 //  MAIN LOOP
 // ============================================================
+let _lastW=0, _lastH=0;
 function loop(){
   frame++;
+
+  // Canvas size guard: sidebar/panel may have 0 dimensions on first paint.
+  // Re-measure and re-init particles whenever the canvas changes size.
+  const cw = canvas.offsetWidth || canvas.clientWidth || 0;
+  const ch = canvas.offsetHeight || canvas.clientHeight || 0;
+  if(cw < 2 || ch < 2){
+    requestAnimationFrame(loop); // wait – not laid out yet
+    return;
+  }
+  if(cw !== _lastW || ch !== _lastH){
+    _lastW = cw; _lastH = ch;
+    canvas.width  = cw;
+    canvas.height = ch;
+    // Re-init only if we already have weather data
+    if(weatherData) initScene();
+  }
+
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
   // 1) Sky
   drawSky();
 
-  // 2) Stars / Moon / Sun (background celestial)
+  // 2) Stars / Moon / Sun
   updateAndDrawStars();
   drawMoon();
   drawSun();
@@ -934,31 +953,31 @@ function loop(){
   // 3) Clouds
   updateAndDrawClouds();
 
-  // 4) Airplane + contrail  ← BEHIND house and trees
+  // 4) Airplane — drawn BEFORE trees/house so it appears behind them
   updateAndDrawPlanes();
 
-  // 5) Birds (high sky)
+  // 5) Birds
   updateAndDrawBirds();
 
-  // 6) Far + mid trees (background layers)
-  drawTrees();  // all layers drawn here, house drawn on top
+  // 6) Trees (far → mid layers)
+  drawTrees();
 
   // 7) Ground
   drawGround();
 
-  // 8) Chimney smoke (behind house front)
+  // 8) Chimney smoke
   updateAndDrawSmoke();
 
-  // 9) House (in front of mid trees)
+  // 9) House (in front of trees)
   drawHouse();
 
-  // 10) Weather effects (in front of everything)
+  // 10) Weather effects
   updateAndDrawRain();
   updateAndDrawSnow();
   updateAndDrawThunder();
   updateAndDrawFog();
 
-  // 11) Fireflies / Leaves (foreground ambience)
+  // 11) Foreground ambience
   updateAndDrawFireflies();
   updateAndDrawLeaves();
 
@@ -980,7 +999,9 @@ window.addEventListener('message', e=>{
 });
 
 // ============================================================
-//  BOOT
+//  BOOT  – start loop immediately, trigger weather fetch.
+//  initScene() is only effective once the canvas is sized,
+//  which the loop now guarantees before drawing anything.
 // ============================================================
 loop();
 if(SIM.condition) applySimulate(SIM.condition,SIM.night);
@@ -988,5 +1009,5 @@ else fetchWeather().catch(offlineWeather);
 setInterval(()=>{ if(!SIM.condition) fetchWeather().catch(()=>{ isOffline=true; updateHUD(); }); }, 5*60*1000);
 </script>
 </body>
-</html>`;
+</html>`
 }
