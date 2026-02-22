@@ -1,0 +1,208 @@
+{
+  "name": "vscode-weathr",
+  "displayName": "weathr - Weather Animations",
+  "description": "Live ASCII weather animations in your VS Code sidebar, powered by real-time weather data from Open-Meteo.",
+  "version": "1.0.0",
+  "publisher": "veirt",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "weather",
+    "animation",
+    "ascii",
+    "fun",
+    "sidebar"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscode-weathr.start",
+        "title": "Start Weather Animation",
+        "category": "Weathr"
+      },
+      {
+        "command": "vscode-weathr.refresh",
+        "title": "Refresh Weather",
+        "category": "Weathr"
+      },
+      {
+        "command": "vscode-weathr.simulate",
+        "title": "Simulate Weather Condition",
+        "category": "Weathr"
+      },
+      {
+        "command": "vscode-weathr.toggleHUD",
+        "title": "Toggle HUD",
+        "category": "Weathr"
+      },
+      {
+        "command": "vscode-weathr.toggleLeaves",
+        "title": "Toggle Falling Leaves",
+        "category": "Weathr"
+      }
+    ],
+    "configuration": {
+      "title": "Weathr",
+      "properties": {
+        "vscode-weathr.location.latitude": {
+          "type": "number",
+          "default": 52.52,
+          "minimum": -90,
+          "maximum": 90,
+          "description": "Latitude for weather location."
+        },
+        "vscode-weathr.location.longitude": {
+          "type": "number",
+          "default": 13.41,
+          "minimum": -180,
+          "maximum": 180,
+          "description": "Longitude for weather location."
+        },
+        "vscode-weathr.location.auto": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-detect location via IP address (uses ipinfo.io)."
+        },
+        "vscode-weathr.location.hide": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide location coordinates in the HUD."
+        },
+        "vscode-weathr.hideHUD": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the HUD status bar with weather details."
+        },
+        "vscode-weathr.units.temperature": {
+          "type": "string",
+          "default": "celsius",
+          "enum": [
+            "celsius",
+            "fahrenheit"
+          ],
+          "enumDescriptions": [
+            "Display temperature in °C",
+            "Display temperature in °F"
+          ],
+          "description": "Temperature unit."
+        },
+        "vscode-weathr.units.windSpeed": {
+          "type": "string",
+          "default": "kmh",
+          "enum": [
+            "kmh",
+            "ms",
+            "mph",
+            "kn"
+          ],
+          "enumDescriptions": [
+            "Kilometers per hour",
+            "Meters per second",
+            "Miles per hour",
+            "Knots"
+          ],
+          "description": "Wind speed unit."
+        },
+        "vscode-weathr.units.precipitation": {
+          "type": "string",
+          "default": "mm",
+          "enum": [
+            "mm",
+            "inch"
+          ],
+          "enumDescriptions": [
+            "Millimeters",
+            "Inches"
+          ],
+          "description": "Precipitation unit."
+        },
+        "vscode-weathr.showLeaves": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show falling autumn leaves animation."
+        },
+        "vscode-weathr.animationSpeed": {
+          "type": "string",
+          "default": "normal",
+          "enum": [
+            "slow",
+            "normal",
+            "fast"
+          ],
+          "description": "Control the animation speed."
+        },
+        "vscode-weathr.panel.position": {
+          "type": "string",
+          "default": "panel",
+          "enum": [
+            "panel",
+            "editor"
+          ],
+          "enumDescriptions": [
+            "Show in the bottom panel",
+            "Show as an editor tab"
+          ],
+          "description": "Where to display the weather panel."
+        },
+        "vscode-weathr.theme": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "dark",
+            "light"
+          ],
+          "enumDescriptions": [
+            "Match VS Code theme",
+            "Dark mode",
+            "Light mode"
+          ],
+          "description": "Color theme for the weather panel."
+        }
+      }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "weathr-panel",
+          "title": "Weathr",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "weathr-panel": [
+        {
+          "type": "webview",
+          "id": "vscode-weathr.weatherView",
+          "name": "Weather Scene"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "npx vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/veirt/weathr"
+  },
+  "license": "GPL-3.0-or-later"
+}
