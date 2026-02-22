@@ -46,6 +46,11 @@
         "command": "vscode-weathr.toggleLeaves",
         "title": "Toggle Falling Leaves",
         "category": "Weathr"
+      },
+      {
+        "command": "vscode-weathr.switchPanel",
+        "title": "Switch to Editor Tab",
+        "category": "Weathr"
       }
     ],
     "configuration": {
@@ -169,6 +174,13 @@
       }
     },
     "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "weathr-sidebar",
+          "title": "Weathr",
+          "icon": "media/icon.svg"
+        }
+      ],
       "panel": [
         {
           "id": "weathr-panel",
@@ -178,6 +190,13 @@
       ]
     },
     "views": {
+      "weathr-sidebar": [
+        {
+          "type": "webview",
+          "id": "vscode-weathr.sidebarView",
+          "name": "Weather"
+        }
+      ],
       "weathr-panel": [
         {
           "type": "webview",

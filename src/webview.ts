@@ -1,5 +1,5 @@
-import * as vscode from 'vscode'
-import { WeathrConfig } from './config'
+import * as vscode from 'vscode';
+import { WeathrConfig } from './config';
 
 export function getWebviewContent(
   webview: vscode.Webview,
@@ -8,10 +8,10 @@ export function getWebviewContent(
   simulateCondition: string | null,
   simulateNight: boolean
 ): string {
-  const configJson = JSON.stringify(config)
-  const simulateJson = JSON.stringify({ condition: simulateCondition, night: simulateNight })
+  const configJson = JSON.stringify(config);
+  const simulateJson = JSON.stringify({ condition: simulateCondition, night: simulateNight });
 
-  return /* html */ `<!DOCTYPE html>
+  return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -19,1220 +19,974 @@ export function getWebviewContent(
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https:;"/>
 <title>Weathr</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a1a; font-family: 'Courier New', Courier, monospace; }
-  #canvas { display: block; width: 100%; height: 100%; }
-  #hud {
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
-    padding: 6px 12px;
-    background: rgba(0,0,0,0.55);
-    color: #00e5ff;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    border-top: 1px solid rgba(0,229,255,0.2);
-    backdrop-filter: blur(4px);
-  }
-  #hud span { opacity: 0.7; margin-right: 10px; }
-  #hud .offline { color: #ff5252; font-weight: bold; }
-  #loading-overlay {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 12px;
-    background: #0a0a1a;
-    color: #00e5ff;
-    font-size: 14px;
-    transition: opacity 0.5s;
-  }
-  #loading-overlay.hidden { opacity: 0; pointer-events: none; }
-  .spinner { width: 32px; height: 32px; border: 3px solid rgba(0,229,255,0.2); border-top-color: #00e5ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #error-bar {
-    position: absolute; top: 0; left: 0; right: 0;
-    background: rgba(255,82,82,0.85);
-    color: #fff; font-size: 11px; padding: 5px 12px;
-    display: none;
-  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;font-family:'Courier New',monospace}
+  #canvas{display:block;width:100%;height:100%}
+  #hud{position:absolute;bottom:0;left:0;right:0;padding:5px 10px;background:rgba(0,0,0,0.58);color:#00e5ff;font-size:10px;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid rgba(0,229,255,0.2);backdrop-filter:blur(4px)}
+  #hud span{opacity:.75;margin-right:9px}
+  #hud .offline{color:#ff5252;font-weight:bold;margin-right:8px}
+  #load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:#0a0a1a;color:#00e5ff;font-size:13px;transition:opacity .5s}
+  #load.gone{opacity:0;pointer-events:none}
+  .spin{width:30px;height:30px;border:3px solid rgba(0,229,255,.2);border-top-color:#00e5ff;border-radius:50%;animation:sp .8s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 <canvas id="canvas"></canvas>
 <div id="hud"></div>
-<div id="loading-overlay"><div class="spinner"></div><span>Fetching weather data...</span></div>
-<div id="error-bar"></div>
-
+<div id="load"><div class="spin"></div><span>Fetching weather...</span></div>
 <script>
-// ============================================================
-// Configuration (injected from extension)
-// ============================================================
+// --- CONFIG ---
 let CFG = ${configJson};
-let SIMULATE = ${simulateJson};
+let SIM = ${simulateJson};
 
-// ============================================================
-// Canvas setup
-// ============================================================
+// --- CANVAS ---
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const hud = document.getElementById('hud');
-const loadingOverlay = document.getElementById('loading-overlay');
-const errorBar = document.getElementById('error-bar');
+const ctx    = canvas.getContext('2d');
+const hud    = document.getElementById('hud');
+const load   = document.getElementById('load');
 
-function resize() {
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+function resize(){
+  canvas.width  = canvas.offsetWidth  || canvas.clientWidth  || 400;
+  canvas.height = canvas.offsetHeight || canvas.clientHeight || 300;
 }
 resize();
-window.addEventListener('resize', () => { resize(); initScene(); });
+window.addEventListener('resize', ()=>{ resize(); initScene(); });
+
+// --- WEATHER STATE ---
+let weatherData=null, isOffline=false, isDay=true, condition='clear';
+let temperature=20, precipitation=0, windSpeed=10, windDirection=180, moonPhase=0.5;
+
+// --- PARTICLE POOLS ---
+let raindrops=[], snowflakes=[], clouds=[], stars=[], fireflies=[];
+let birds=[], planes=[], fogParticles=[], leaves=[], smoke=[];
+let lightningBolts=[], lightningFlash=0, nextLightFrame=200;
+let treeLayout=[]; // pre-computed per initScene
+let frame=0;
+
+const SPD = ()=> CFG.animationSpeed==='slow'?.5:CFG.animationSpeed==='fast'?2:1;
+const HY  = ()=> canvas.height * 0.73;  // horizon y
+
+// ---- CONDITION HELPERS ----
+const RAIN_CONDS  = new Set(['drizzle','rain','rain-showers','freezing-rain','thunderstorm','thunderstorm-hail']);
+const SNOW_CONDS  = new Set(['snow','snow-grains','snow-showers']);
+const STORM_CONDS = new Set(['thunderstorm','thunderstorm-hail']);
+const isRaining   = ()=> RAIN_CONDS.has(condition);
+const isSnowing   = ()=> SNOW_CONDS.has(condition);
+const isStorm     = ()=> STORM_CONDS.has(condition);
 
 // ============================================================
-// Weather State
+//  SCENE INIT
 // ============================================================
-let weatherData = null;
-let isOffline = false;
-let isDay = true;
-let condition = 'clear';
-let temperature = 20;
-let apparentTemp = 19;
-let humidity = 60;
-let precipitation = 0;
-let windSpeed = 10;
-let windDirection = 180;
-let cloudCover = 20;
-let pressure = 1013;
-let moonPhase = 0.5;
+function initScene(){
+  raindrops=[]; snowflakes=[]; clouds=[]; stars=[];
+  fireflies=[]; birds=[]; planes=[]; fogParticles=[];
+  leaves=[]; smoke=[]; lightningBolts=[];
 
-// ============================================================
-// Animation particles / entities
-// ============================================================
-let raindrops = [];
-let snowflakes = [];
-let clouds = [];
-let stars = [];
-let fireflies = [];
-let birds = [];
-let airplanes = [];
-let fogParticles = [];
-let leaves = [];
-let lightningFlash = 0;
-let chimneySmoke = [];
-let frame = 0;
-let animFrame = null;
+  // Stars
+  if(!isDay){
+    for(let i=0;i<140;i++) stars.push({
+      x:Math.random()*canvas.width,
+      y:Math.random()*HY()*.9,
+      r:Math.random()*1.4+.3,
+      a:Math.random(),
+      spd:Math.random()*.04+.01
+    });
+  }
 
-// Speed multiplier from config
-function speedMultiplier() {
-    return CFG.animationSpeed === 'slow' ? 0.5 : CFG.animationSpeed === 'fast' ? 2.0 : 1.0;
+  // Clouds
+  const nc = condition==='clear'?2:condition==='partly-cloudy'?4:condition==='overcast'?8:6;
+  for(let i=0;i<nc;i++) spawnCloud(Math.random()*canvas.width, true);
+
+  // Rain particles
+  if(isRaining()){
+    const n = condition==='drizzle'?55:isStorm()?220:condition==='freezing-rain'?160:110;
+    for(let i=0;i<n;i++) spawnDrop(true);
+  }
+
+  // Snow particles
+  if(isSnowing()){
+    const n = condition==='snow-grains'?60:condition==='snow-showers'?110:140;
+    for(let i=0;i<n;i++) spawnFlake(true);
+  }
+
+  // Fog
+  if(condition==='fog') for(let i=0;i<40;i++) spawnFog(true);
+
+  // Birds
+  if(isDay && !isRaining() && !isSnowing() && condition!=='fog'){
+    for(let i=0;i<6;i++) spawnBird(Math.random()*canvas.width);
+  }
+
+  // Airplane (flies HIGH — top 15% of canvas)
+  if(isDay && (condition==='clear'||condition==='partly-cloudy')){
+    spawnPlane();
+  }
+
+  // Fireflies
+  if(!isDay && (condition==='clear'||condition==='partly-cloudy') && temperature>15){
+    for(let i=0;i<22;i++) spawnFirefly();
+  }
+
+  // Leaves
+  if(CFG.showLeaves && !isRaining() && !isSnowing()){
+    for(let i=0;i<20;i++) spawnLeaf(true);
+  }
+
+  // Build tree layout once per scene
+  buildTrees();
 }
 
 // ============================================================
-// COLOR PALETTE  (day / night variants)
+//  TREE LAYOUT  –  3 depth layers, many varied species
 // ============================================================
-function skyGradient() {
-    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    if (!isDay) {
-        grad.addColorStop(0, '#020312');
-        grad.addColorStop(1, '#0d0d2b');
-    } else if (condition === 'thunderstorm' || condition === 'thunderstorm-hail') {
-        grad.addColorStop(0, '#1a1a2e');
-        grad.addColorStop(1, '#2a2a3e');
-    } else if (condition === 'fog') {
-        grad.addColorStop(0, '#8a9ba8');
-        grad.addColorStop(1, '#b0bec5');
-    } else if (condition === 'overcast' || condition === 'cloudy') {
-        grad.addColorStop(0, '#546e7a');
-        grad.addColorStop(1, '#78909c');
-    } else if (condition === 'clear') {
-        grad.addColorStop(0, '#1a237e');
-        grad.addColorStop(1, '#42a5f5');
-    } else if (condition === 'partly-cloudy') {
-        grad.addColorStop(0, '#283593');
-        grad.addColorStop(1, '#64b5f6');
+const TREE_SPECIES=['pine','round','tall','birch','spruce'];
+function buildTrees(){
+  treeLayout=[];
+  const hy=HY();
+  const W =canvas.width;
+
+  // FAR layer (tiny, misty, behind everything)
+  const farCount=Math.max(6, Math.floor(W/55));
+  for(let i=0;i<farCount;i++){
+    treeLayout.push({
+      layer:0,
+      x: (i+Math.random()*.6)*W/farCount + Math.random()*20-10,
+      baseY: hy - 2,
+      h: Math.random()*22+14,
+      w: Math.random()*14+8,
+      species: TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
+      alpha: Math.random()*.25+.12
+    });
+  }
+
+  // MID layer
+  const midCount=Math.max(8, Math.floor(W/45));
+  for(let i=0;i<midCount;i++){
+    // exclude centre (house area: 35%–65% of width)
+    const candidates=[
+      (i+Math.random()*.7)/(midCount)*W*.32 + Math.random()*8,
+      W*.68 + (i+Math.random()*.7)/(midCount)*W*.32 + Math.random()*8
+    ];
+    const x = candidates[Math.floor(Math.random()*2)];
+    treeLayout.push({
+      layer:1,
+      x,
+      baseY: hy - 1,
+      h: Math.random()*38+22,
+      w: Math.random()*20+12,
+      species: TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
+      alpha: Math.random()*.25+.55
+    });
+  }
+
+  // NEAR layer (large, flanking the scene)
+  const nearPositions=[
+    ...Array.from({length:4},(_,i)=> W*.01 + i*W*.09 + Math.random()*16),
+    ...Array.from({length:4},(_,i)=> W*.7  + i*W*.08 + Math.random()*16)
+  ];
+  nearPositions.forEach(x=>{
+    treeLayout.push({
+      layer:2,
+      x,
+      baseY: hy,
+      h: Math.random()*55+38,
+      w: Math.random()*28+16,
+      species: TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
+      alpha: 1
+    });
+  });
+
+  // Sort far→near
+  treeLayout.sort((a,b)=>a.layer-b.layer);
+}
+
+// ============================================================
+//  SPAWN HELPERS
+// ============================================================
+function spawnCloud(x, init=false){
+  clouds.push({
+    x: x !== undefined ? x : canvas.width+80,
+    y: Math.random()*HY()*.28+15,
+    w: Math.random()*110+60,
+    h: Math.random()*32+18,
+    spd:(Math.random()*.28+.08)*SPD(),
+    alpha:condition==='overcast'?.92:condition==='fog'?.55:.78
+  });
+}
+
+function spawnDrop(init){
+  // Wind drift: a simple sideways push based on direction+speed
+  const drift = ((windDirection%360)<180?1:-1) * (windSpeed/50) * (Math.random()*1.5+.5);
+  const vy = (Math.random()*5+5)*SPD();
+  raindrops.push({
+    x: Math.random()*canvas.width,
+    y: init ? Math.random()*HY() : Math.random()*-80-5,
+    vx: drift,
+    vy,
+    len: Math.random()*9+7,
+    alpha: condition==='drizzle'?.45:.78,
+    isHail: condition==='thunderstorm-hail'||condition==='freezing-rain'
+  });
+}
+
+function spawnFlake(init){
+  snowflakes.push({
+    x: Math.random()*(canvas.width+40)-20,
+    y: init ? Math.random()*HY() : -8,
+    r: Math.random()*3.5+1,
+    vy:(Math.random()*1.2+.5)*SPD(),
+    vx:(Math.random()-.5)*.8,
+    wobble:Math.random()*Math.PI*2,
+    wobbleSpd:Math.random()*.06+.02,
+    angle:Math.random()*Math.PI*2,
+    spin:(Math.random()-.5)*.06
+  });
+}
+
+function spawnFog(init){
+  fogParticles.push({
+    x: init ? Math.random()*canvas.width : -120,
+    y: Math.random()*canvas.height*.8,
+    w: Math.random()*220+90,
+    h: Math.random()*60+28,
+    spd:(Math.random()*.6+.15)*SPD(),
+    alpha:Math.random()*.28+.1
+  });
+}
+
+function spawnBird(startX){
+  birds.push({
+    x: startX!==undefined ? startX : -30,
+    y: Math.random()*HY()*.55+30,
+    spd:(Math.random()*1.8+1)*SPD(),
+    wing:Math.random()*Math.PI,
+    wingSpd:(Math.random()*.08+.05)*SPD()*2,
+    size:Math.random()*5+4
+  });
+}
+
+function spawnPlane(){
+  // Very high — top 5–12% of screen, always above clouds and the house
+  planes.push({
+    x:-120,
+    y: canvas.height*(Math.random()*.07+.04),  // 4%–11% from top
+    spd:(Math.random()*1.2+1.8)*SPD(),
+    trail:[]
+  });
+}
+
+function spawnFirefly(){
+  const hy=HY();
+  fireflies.push({
+    x:Math.random()*canvas.width,
+    y:hy*.45+Math.random()*hy*.5,
+    vx:(Math.random()-.5)*.7,
+    vy:(Math.random()-.5)*.45,
+    alpha:Math.random(),
+    aDir:Math.random()>.5?1:-1,
+    aSpd:Math.random()*.03+.01,
+    r:Math.random()*2+1
+  });
+}
+
+function spawnLeaf(init){
+  leaves.push({
+    x:Math.random()*canvas.width,
+    y:init ? Math.random()*HY() : -16,
+    vy:(Math.random()*1.4+.7)*SPD(),
+    vx:(Math.random()-.5)*1.5,
+    angle:Math.random()*Math.PI*2,
+    spin:(Math.random()-.5)*.12,
+    wobble:Math.random()*Math.PI*2,
+    wobbleAmp:Math.random()*1.2+.4,
+    size:Math.random()*9+5,
+    color:['#d32f2f','#e64a19','#f57f17','#bf360c','#ff8f00','#c62828','#8d6e63'][Math.floor(Math.random()*7)]
+  });
+}
+
+function spawnSmoke(x,y){
+  smoke.push({x,y,vx:(Math.random()-.5)*.6,vy:-(Math.random()*.9+.4)*SPD(),r:Math.random()*5+3,alpha:.65,life:1});
+}
+
+// ============================================================
+//  SKY GRADIENT
+// ============================================================
+function drawSky(){
+  const g=ctx.createLinearGradient(0,0,0,canvas.height);
+  if(!isDay){
+    g.addColorStop(0,'#010210'); g.addColorStop(1,'#0b0b26');
+  } else if(isStorm()){
+    g.addColorStop(0,'#171728'); g.addColorStop(1,'#263238');
+  } else if(condition==='fog'){
+    g.addColorStop(0,'#8a9ba8'); g.addColorStop(1,'#b0bec5');
+  } else if(condition==='overcast'||condition==='cloudy'){
+    g.addColorStop(0,'#455a64'); g.addColorStop(1,'#78909c');
+  } else if(condition==='clear'){
+    g.addColorStop(0,'#0d1b6e'); g.addColorStop(1,'#40a0f0');
+  } else if(condition==='partly-cloudy'){
+    g.addColorStop(0,'#1a2f8a'); g.addColorStop(1,'#5db8f5');
+  } else {
+    g.addColorStop(0,'#1e2a45'); g.addColorStop(1,'#37474f');
+  }
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+
+// ============================================================
+//  SUN
+// ============================================================
+function drawSun(){
+  if(!isDay||isRaining()||isSnowing()||condition==='fog'||condition==='overcast') return;
+  const px=canvas.width*.82, py=canvas.height*.1, R=28;
+  const pulse=Math.sin(frame*.025)*3;
+  ctx.save(); ctx.translate(px,py);
+  // Rays
+  ctx.strokeStyle='rgba(255,235,59,.55)'; ctx.lineWidth=2;
+  for(let i=0;i<12;i++){
+    const a=(i/12)*Math.PI*2+frame*.012;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a)*(R+7+pulse),Math.sin(a)*(R+7+pulse));
+    ctx.lineTo(Math.cos(a)*(R+20+pulse),Math.sin(a)*(R+20+pulse));
+    ctx.stroke();
+  }
+  // Glow
+  const gw=ctx.createRadialGradient(0,0,R*.4,0,0,R*2.8);
+  gw.addColorStop(0,'rgba(255,240,80,.28)'); gw.addColorStop(1,'rgba(255,240,80,0)');
+  ctx.fillStyle=gw; ctx.beginPath(); ctx.arc(0,0,R*2.8,0,Math.PI*2); ctx.fill();
+  // Body
+  const bg=ctx.createRadialGradient(0,0,0,0,0,R);
+  bg.addColorStop(0,'#fffde7'); bg.addColorStop(1,'#ffeb3b');
+  ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+// ============================================================
+//  MOON
+// ============================================================
+function drawMoon(){
+  if(isDay) return;
+  const px=canvas.width*.78, py=canvas.height*.11, R=20;
+  ctx.save(); ctx.translate(px,py);
+  const gw=ctx.createRadialGradient(0,0,R,0,0,R*3.2);
+  gw.addColorStop(0,'rgba(255,250,220,.22)'); gw.addColorStop(1,'rgba(255,250,220,0)');
+  ctx.fillStyle=gw; ctx.beginPath(); ctx.arc(0,0,R*3.2,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff8e1'; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
+  const sx=R*.38*(moonPhase>.5?1:-1);
+  ctx.fillStyle=isDay?'#42a5f5':'#080820';
+  ctx.beginPath(); ctx.arc(sx,0,R*.82,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+// ============================================================
+//  STARS
+// ============================================================
+function updateAndDrawStars(){
+  if(isDay) return;
+  stars.forEach(s=>{
+    s.a+=s.spd*(s.a>.9?-1:s.a<.15?1:(Math.random()>.5?1:-1));
+    s.a=Math.max(.1,Math.min(1,s.a));
+    ctx.globalAlpha=s.a;
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
+  });
+  ctx.globalAlpha=1;
+}
+
+// ============================================================
+//  CLOUDS
+// ============================================================
+function updateAndDrawClouds(){
+  clouds.forEach(c=>{ c.x+=c.spd; });
+  clouds=clouds.filter(c=>c.x<canvas.width+250);
+  const max=condition==='clear'?2:condition==='partly-cloudy'?5:9;
+  if(clouds.length<max && Math.random()<.006) spawnCloud();
+
+  clouds.forEach(c=>{
+    ctx.save(); ctx.globalAlpha=c.alpha;
+    ctx.fillStyle=!isDay?'#23233a':isStorm()||isRaining()?'#546e7a':'#eceff1';
+    ctx.beginPath();
+    ctx.arc(c.x,         c.y,         c.h*.72, 0,Math.PI*2);
+    ctx.arc(c.x+c.w*.3,  c.y-c.h*.22, c.h*.92, 0,Math.PI*2);
+    ctx.arc(c.x+c.w*.63, c.y,         c.h*.68, 0,Math.PI*2);
+    ctx.arc(c.x+c.w*.18, c.y+c.h*.14, c.h*.48, 0,Math.PI*2);
+    ctx.arc(c.x+c.w*.48, c.y+c.h*.14, c.h*.48, 0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ============================================================
+//  AIRPLANE  (drawn early so house is in front)
+// ============================================================
+function updateAndDrawPlanes(){
+  if(!isDay||(condition!=='clear'&&condition!=='partly-cloudy')) return;
+  planes.forEach(p=>{
+    p.x+=p.spd;
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>80) p.trail.shift();
+  });
+  planes=planes.filter(p=>p.x<canvas.width+160);
+  if(planes.length<1 && Math.random()<.0008) spawnPlane();
+
+  planes.forEach(p=>{
+    // Contrail
+    ctx.save();
+    for(let i=1;i<p.trail.length;i++){
+      const t=i/p.trail.length;
+      ctx.globalAlpha=t*.3;
+      ctx.strokeStyle='rgba(220,240,255,.9)';
+      ctx.lineWidth=3.5*(1-t*.5);
+      ctx.beginPath();
+      ctx.moveTo(p.trail[i-1].x,p.trail[i-1].y);
+      ctx.lineTo(p.trail[i].x,p.trail[i].y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Body
+    ctx.save(); ctx.translate(p.x,p.y);
+    ctx.fillStyle='#eceff1'; ctx.strokeStyle='#b0bec5'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.ellipse(0,0,18,4.5,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    // Wing
+    ctx.beginPath(); ctx.moveTo(-4,0); ctx.lineTo(-10,-13); ctx.lineTo(10,1); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // Tail fin
+    ctx.beginPath(); ctx.moveTo(-15,0); ctx.lineTo(-20,-7); ctx.lineTo(-13,0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // Engine
+    ctx.fillStyle='#90a4ae';
+    ctx.beginPath(); ctx.ellipse(-2,4,5,2,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ============================================================
+//  TREES  (multi-layer, varied species)
+// ============================================================
+function drawTrees(){
+  const snow = isSnowing()||(condition==='snow-grains');
+  treeLayout.forEach(t=>{
+    ctx.save(); ctx.globalAlpha=t.alpha;
+    _drawTree(t.x, t.baseY, t.h, t.w, t.species, t.layer, snow);
+    ctx.restore();
+  });
+}
+
+function _drawTree(x, baseY, h, w, species, layer, snow){
+  const lightBoost=layer===0?.6:layer===1?.8:1;
+  // Trunk
+  const trunkH=h*.28, trunkW=Math.max(3,w*.18);
+  const tc=isDay?\`rgba(\${93*lightBoost|0},\${63*lightBoost|0},\${35*lightBoost|0},1)\`:'rgba(50,33,18,1)';
+  ctx.fillStyle=tc;
+  ctx.fillRect(x-trunkW/2, baseY-trunkH, trunkW, trunkH);
+
+  const leafY=baseY-trunkH;
+
+  if(species==='pine'||species==='spruce'){
+    // Triangular layered pine
+    const layers=species==='spruce'?4:3;
+    for(let l=0;l<layers;l++){
+      const progress=l/layers;
+      const lh=h*(1-progress)*.55;
+      const lw=w*(1.1-progress*.4);
+      const ly=leafY - progress*h*.38;
+      ctx.fillStyle=snow?_treeGreen(lightBoost,.7):_treeGreen(lightBoost,1);
+      ctx.beginPath();
+      ctx.moveTo(x-lw,ly); ctx.lineTo(x+lw,ly); ctx.lineTo(x,ly-lh);
+      ctx.closePath(); ctx.fill();
+      if(snow){
+        ctx.fillStyle='rgba(230,245,255,.82)';
+        ctx.beginPath();
+        ctx.moveTo(x-lw*.45,ly-lh*.35); ctx.lineTo(x+lw*.45,ly-lh*.35); ctx.lineTo(x,ly-lh);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+  } else if(species==='round'){
+    // Round deciduous
+    const ry=leafY-h*.46, rx=h*.42, ryw=h*.39;
+    ctx.fillStyle=_treeGreen(lightBoost,1);
+    ctx.beginPath(); ctx.ellipse(x,ry,rx,ryw,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=_treeGreen(lightBoost,.78);
+    ctx.beginPath(); ctx.ellipse(x-w*.18,ry+h*.06,rx*.65,ryw*.65,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+w*.18,ry-h*.04,rx*.58,ryw*.58,0,0,Math.PI*2); ctx.fill();
+    if(snow){
+      ctx.fillStyle='rgba(230,245,255,.6)';
+      ctx.beginPath(); ctx.ellipse(x,ry-ryw*.3,rx*.65,ryw*.4,0,0,Math.PI*2); ctx.fill();
+    }
+  } else if(species==='tall'){
+    // Tall narrow
+    const ry=leafY-h*.55;
+    ctx.fillStyle=_treeGreen(lightBoost,1);
+    ctx.beginPath(); ctx.ellipse(x,ry,w*.52,h*.58,0,0,Math.PI*2); ctx.fill();
+    if(snow){
+      ctx.fillStyle='rgba(230,245,255,.5)';
+      ctx.beginPath(); ctx.ellipse(x,ry-h*.22,w*.35,h*.18,0,0,Math.PI*2); ctx.fill();
+    }
+  } else if(species==='birch'){
+    // Birch: thin pale trunk + small cloud canopy
+    ctx.fillStyle=isDay?'rgba(200,190,175,1)':'rgba(120,110,100,1)';
+    ctx.fillRect(x-trunkW*.55/2, baseY-h*.44, trunkW*.55, h*.44);
+    ctx.fillStyle=_treeGreen(lightBoost,.88);
+    ctx.beginPath(); ctx.arc(x,leafY-h*.42,w*.55,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x-w*.28,leafY-h*.32,w*.38,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+w*.24,leafY-h*.35,w*.35,0,Math.PI*2); ctx.fill();
+  }
+}
+
+function _treeGreen(lb, sat){
+  if(!isDay) return 'rgba('+(22*lb|0)+','+(62*lb|0)+','+(22*lb|0)+','+sat+')';
+  const r=(28+12*(1-sat))|0, g=(100+30*lb)|0, b=(28+12*(1-sat))|0;
+  return 'rgba('+r+','+g+','+b+','+sat+')';
+}
+
+// ============================================================
+//  GROUND
+// ============================================================
+function drawGround(){
+  const hy=HY();
+  const g=ctx.createLinearGradient(0,hy,0,canvas.height);
+  if(isSnowing()){
+    g.addColorStop(0,isDay?'#e3f2fd':'#bbdefb');
+    g.addColorStop(1,isDay?'#f1f8e9':'#c8e6c9');
+  } else {
+    g.addColorStop(0,isDay?'#33691e':'#1b5e20');
+    g.addColorStop(1,isDay?'#2e7d32':'#194d1f');
+  }
+  ctx.fillStyle=g;
+  ctx.fillRect(0,hy,canvas.width,canvas.height-hy);
+  // Horizon glow line
+  ctx.strokeStyle=isSnowing()?'rgba(180,220,180,.3)':'rgba(76,175,80,.25)';
+  ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(0,hy); ctx.lineTo(canvas.width,hy); ctx.stroke();
+}
+
+// ============================================================
+//  HOUSE  (drawn after trees so it's in front of mid layer)
+// ============================================================
+function drawHouse(){
+  const hy=HY();
+  const cx=canvas.width/2-55, by=hy-4;
+  const houseW=110, houseH=72;
+  const roofC=isDay?'#b71c1c':isStorm()?'#4a148c':'#6a0dad';
+  const wallC =isDay?'rgba(215,185,145,1)':'rgba(95,65,45,1)';
+  const winC  =isDay?'#80deea':isStorm()?'#ffd54f':'#fff176';
+  const doorC ='#5d4037';
+
+  // Chimney
+  ctx.fillStyle='#4e342e';
+  ctx.fillRect(cx+18, by-houseH-44, 13, 30);
+
+  // Roof
+  ctx.fillStyle=roofC;
+  ctx.shadowColor='rgba(0,0,0,.25)'; ctx.shadowBlur=6;
+  ctx.beginPath();
+  ctx.moveTo(cx-14,by-houseH+8); ctx.lineTo(cx+houseW+14,by-houseH+8);
+  ctx.lineTo(cx+houseW*.72,by-houseH-32); ctx.lineTo(cx+houseW*.28,by-houseH-32);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur=0;
+
+  // Wall
+  ctx.fillStyle=wallC;
+  ctx.fillRect(cx,by-houseH,houseW,houseH);
+
+  // Windows
+  ctx.fillStyle=winC;
+  if(!isDay||isStorm()){ ctx.shadowColor=winC; ctx.shadowBlur=10; }
+  ctx.fillRect(cx+12,by-houseH+16,20,18);
+  ctx.fillRect(cx+houseW-32,by-houseH+16,20,18);
+  ctx.shadowBlur=0;
+  // Window panes
+  ctx.strokeStyle='rgba(0,0,0,.28)'; ctx.lineWidth=1;
+  [[cx+22,by-houseH+16,cx+22,by-houseH+34],[cx+12,by-houseH+25,cx+32,by-houseH+25],
+   [cx+houseW-22,by-houseH+16,cx+houseW-22,by-houseH+34],[cx+houseW-32,by-houseH+25,cx+houseW-12,by-houseH+25]
+  ].forEach(([x1,y1,x2,y2])=>{ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); });
+
+  // Door
+  const dw=18,dh=28,dx=cx+houseW/2-dw/2;
+  ctx.fillStyle=doorC;
+  ctx.fillRect(dx,by-dh,dw,dh);
+  ctx.beginPath(); ctx.arc(dx+dw/2,by-dh,dw/2,Math.PI,0); ctx.fill();
+  ctx.fillStyle='#ffd54f';
+  ctx.beginPath(); ctx.arc(dx+dw-4,by-dh/2,1.8,0,Math.PI*2); ctx.fill();
+
+  // Path
+  ctx.fillStyle=isDay?'#9e9e9e':'#616161';
+  ctx.beginPath();
+  ctx.moveTo(cx+houseW/2-10,by); ctx.lineTo(cx+houseW/2+10,by);
+  ctx.lineTo(cx+houseW/2+18,hy+8); ctx.lineTo(cx+houseW/2-18,hy+8);
+  ctx.closePath(); ctx.fill();
+
+  // Fence (left)
+  for(let i=0;i<7;i++) drawFencePost(cx-46+i*13, by-18, isDay);
+  // Fence (right)
+  for(let i=0;i<7;i++) drawFencePost(cx+houseW+6+i*13, by-18, isDay);
+  // Fence rails
+  ctx.strokeStyle=isDay?'rgba(180,155,100,.7)':'rgba(90,70,50,.7)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(cx-46,by-14); ctx.lineTo(cx-46+6*13+4,by-14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx+houseW+6,by-14); ctx.lineTo(cx+houseW+6+6*13+4,by-14); ctx.stroke();
+}
+
+function drawFencePost(x,y,day){
+  ctx.fillStyle=day?'#e6c96a':'#8d6e63';
+  ctx.fillRect(x,y,4,20);
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+2,y-6); ctx.lineTo(x+4,y); ctx.fill();
+}
+
+// ============================================================
+//  CHIMNEY SMOKE
+// ============================================================
+function updateAndDrawSmoke(){
+  if(isRaining()||isStorm()) return;
+  smoke.forEach(s=>{ s.x+=s.vx; s.y+=s.vy; s.r+=.18; s.alpha-=.009; s.life-=.012; });
+  smoke=smoke.filter(s=>s.life>0&&s.alpha>0);
+  if(Math.random()<.07){
+    const cx=canvas.width/2-55+18+6;
+    spawnSmoke(cx+6, HY()-72-44);
+  }
+  smoke.forEach(s=>{
+    ctx.save(); ctx.globalAlpha=s.alpha;
+    ctx.fillStyle=isDay?'#90a4ae':'#546e7a';
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ============================================================
+//  RAIN / HAIL
+// ============================================================
+function updateAndDrawRain(){
+  if(!isRaining()) return;
+  // Replenish
+  const target=condition==='drizzle'?55:isStorm()?220:condition==='freezing-rain'?160:110;
+  while(raindrops.length<target) spawnDrop(false);
+  // Update
+  raindrops.forEach(d=>{ d.x+=d.vx; d.y+=d.vy; });
+  raindrops=raindrops.filter(d=>d.y<HY()+25&&d.x>-60&&d.x<canvas.width+60);
+
+  // Draw
+  raindrops.forEach(d=>{
+    ctx.save(); ctx.globalAlpha=d.alpha;
+    if(d.isHail){
+      // Hail: bright icy circle with highlight
+      ctx.fillStyle='rgba(200,230,255,.9)';
+      ctx.beginPath(); ctx.arc(d.x,d.y,3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,.6)';
+      ctx.beginPath(); ctx.arc(d.x-1,d.y-1,1.2,0,Math.PI*2); ctx.fill();
     } else {
-        grad.addColorStop(0, '#1e2a45');
-        grad.addColorStop(1, '#37474f');
+      // Rain streak — draw along velocity direction
+      const nx=d.x+d.vx*2.5, ny=d.y-d.len;
+      ctx.strokeStyle=condition==='drizzle'?'rgba(140,200,255,.55)':'rgba(100,180,255,.8)';
+      ctx.lineWidth=condition==='drizzle'?.9:1.6;
+      ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(nx,ny); ctx.lineTo(d.x,d.y); ctx.stroke();
     }
-    return grad;
-}
-
-function groundColor() {
-    if (condition === 'snow' || condition === 'snow-grains' || condition === 'snow-showers') {
-        return isDay ? '#e0f2f1' : '#b2dfdb';
-    }
-    return isDay ? '#2e7d32' : '#1b5e20';
-}
-
-// ============================================================
-// SCENE INIT  –  spawn initial particles
-// ============================================================
-function initScene() {
-    raindrops = [];
-    snowflakes = [];
-    clouds = [];
-    stars = [];
-    fireflies = [];
-    birds = [];
-    airplanes = [];
-    fogParticles = [];
-    leaves = [];
-    chimneySmoke = [];
-
-    // Stars (night)
-    if (!isDay) {
-        for (let i = 0; i < 120; i++) {
-            stars.push({
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height * 0.65,
-                r: Math.random() * 1.5 + 0.3,
-                alpha: Math.random(),
-                twinkleSpeed: Math.random() * 0.04 + 0.01
-            });
-        }
-    }
-
-    // Clouds
-    let cloudCount = condition === 'clear' ? 2 : condition === 'partly-cloudy' ? 4 : condition === 'overcast' ? 7 : 5;
-    for (let i = 0; i < cloudCount; i++) {
-        spawnCloud(Math.random() * canvas.width);
-    }
-
-    // Rain
-    if (isRaining()) {
-        let count = condition === 'drizzle' ? 40 : condition === 'thunderstorm-hail' ? 200 : condition === 'freezing-rain' ? 150 : 90;
-        for (let i = 0; i < count; i++) spawnRaindrop(true);
-    }
-
-    // Snow
-    if (isSnowing()) {
-        let count = condition === 'snow-grains' ? 50 : condition === 'snow-showers' ? 100 : 120;
-        for (let i = 0; i < count; i++) spawnSnowflake(true);
-    }
-
-    // Fog
-    if (condition === 'fog') {
-        for (let i = 0; i < 30; i++) spawnFogParticle(true);
-    }
-
-    // Birds (clear/partly-cloudy day)
-    if (isDay && !isRaining() && !isSnowing() && condition !== 'fog') {
-        for (let i = 0; i < 5; i++) spawnBird();
-    }
-
-    // Airplane (clear/partly-cloudy day)
-    if (isDay && (condition === 'clear' || condition === 'partly-cloudy')) {
-        spawnAirplane();
-    }
-
-    // Fireflies (warm clear night)
-    if (!isDay && (condition === 'clear' || condition === 'partly-cloudy') && temperature > 15) {
-        for (let i = 0; i < 20; i++) spawnFirefly();
-    }
-
-    // Falling leaves
-    if (CFG.showLeaves && !isRaining() && !isSnowing()) {
-        for (let i = 0; i < 16; i++) spawnLeaf(true);
-    }
-}
-
-// ============================================================
-// SPAWN helpers
-// ============================================================
-function horizonY() { return canvas.height * 0.72; }
-
-function spawnCloud(x) {
-    clouds.push({
-        x: x ?? canvas.width + 60,
-        y: Math.random() * canvas.height * 0.30 + 20,
-        w: Math.random() * 100 + 60,
-        h: Math.random() * 30 + 20,
-        speed: (Math.random() * 0.3 + 0.1) * speedMultiplier(),
-        alpha: condition === 'overcast' ? 0.9 : condition === 'fog' ? 0.6 : 0.75
-    });
-}
-
-function spawnRaindrop(init) {
-    const angle = (windDirection - 90) * Math.PI / 180;
-    const speed = (Math.random() * 4 + 4) * speedMultiplier();
-    raindrops.push({
-        x: init ? Math.random() * canvas.width : -20,
-        y: init ? Math.random() * horizonY() : Math.random() * -100,
-        vx: Math.cos(angle) * 1.5 * (windSpeed / 20),
-        vy: speed,
-        len: Math.random() * 10 + 8,
-        alpha: condition === 'drizzle' ? 0.4 : 0.7,
-        isHail: condition === 'thunderstorm-hail' || condition === 'freezing-rain'
-    });
-}
-
-function spawnSnowflake(init) {
-    snowflakes.push({
-        x: Math.random() * canvas.width,
-        y: init ? Math.random() * horizonY() : -10,
-        r: Math.random() * 3 + 1,
-        vy: (Math.random() * 1 + 0.5) * speedMultiplier(),
-        vx: (Math.random() - 0.5) * 0.5,
-        wobble: Math.random() * Math.PI * 2,
-        wobbleSpeed: Math.random() * 0.05 + 0.02
-    });
-}
-
-function spawnFogParticle(init) {
-    fogParticles.push({
-        x: init ? Math.random() * canvas.width : -50,
-        y: Math.random() * canvas.height,
-        w: Math.random() * 180 + 80,
-        h: Math.random() * 50 + 20,
-        speed: (Math.random() * 0.5 + 0.2) * speedMultiplier(),
-        alpha: Math.random() * 0.25 + 0.1
-    });
-}
-
-function spawnBird() {
-    birds.push({
-        x: -30,
-        y: Math.random() * horizonY() * 0.7 + 20,
-        speed: (Math.random() * 1.5 + 1) * speedMultiplier(),
-        wing: 0,
-        wingDir: 1,
-        size: Math.random() * 5 + 4
-    });
-}
-
-function spawnAirplane() {
-    airplanes.push({
-        x: -100,
-        y: Math.random() * horizonY() * 0.45 + 30,
-        speed: (Math.random() * 1.5 + 2) * speedMultiplier(),
-        dir: 1,
-        trail: []
-    });
-}
-
-function spawnFirefly() {
-    const hy = horizonY();
-    fireflies.push({
-        x: Math.random() * canvas.width,
-        y: hy * 0.5 + Math.random() * hy * 0.45,
-        vx: (Math.random() - 0.5) * 0.6,
-        vy: (Math.random() - 0.5) * 0.4,
-        alpha: Math.random(),
-        alphaDir: Math.random() > 0.5 ? 1 : -1,
-        alphaSpeed: Math.random() * 0.03 + 0.01,
-        r: Math.random() * 2 + 1
-    });
-}
-
-function spawnLeaf(init) {
-    leaves.push({
-        x: Math.random() * canvas.width,
-        y: init ? Math.random() * horizonY() : -16,
-        vy: (Math.random() * 1.2 + 0.6) * speedMultiplier(),
-        vx: (Math.random() - 0.5) * 1.2,
-        angle: Math.random() * Math.PI * 2,
-        spin: (Math.random() - 0.5) * 0.1,
-        size: Math.random() * 8 + 5,
-        color: ['#d32f2f','#e64a19','#f57f17','#e65100','#ff8f00'][Math.floor(Math.random()*5)]
-    });
-}
-
-function spawnChimneySmoke(x, y) {
-    chimneySmoke.push({
-        x, y, vy: -(Math.random() * 0.8 + 0.3) * speedMultiplier(),
-        vx: (Math.random() - 0.5) * 0.5,
-        r: Math.random() * 4 + 3,
-        alpha: 0.6,
-        life: 1.0
-    });
-}
-
-// ============================================================
-// Condition helpers
-// ============================================================
-function isRaining() {
-    return ['drizzle','rain','rain-showers','freezing-rain','thunderstorm','thunderstorm-hail'].includes(condition);
-}
-function isSnowing() {
-    return ['snow','snow-grains','snow-showers'].includes(condition);
-}
-function isThunderstorm() {
-    return condition === 'thunderstorm' || condition === 'thunderstorm-hail';
-}
-
-// ============================================================
-// SUN drawing
-// ============================================================
-function drawSun() {
-    if (!isDay) return;
-    if (isRaining() || isSnowing() || condition === 'fog' || condition === 'overcast') return;
-
-    const px = canvas.width * 0.8;
-    const py = canvas.height * 0.12;
-    const r = 30;
-    const pulse = Math.sin(frame * 0.03) * 3;
-
-    // Rays
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.strokeStyle = 'rgba(255,235,59,0.5)';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 12; i++) {
-        const angle = (i / 12) * Math.PI * 2 + frame * 0.01;
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(angle) * (r + 6 + pulse), Math.sin(angle) * (r + 6 + pulse));
-        ctx.lineTo(Math.cos(angle) * (r + 18 + pulse), Math.sin(angle) * (r + 18 + pulse));
-        ctx.stroke();
-    }
-
-    // Glow
-    const glow = ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, r * 2.5);
-    glow.addColorStop(0, 'rgba(255,235,59,0.3)');
-    glow.addColorStop(1, 'rgba(255,235,59,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 2.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Sun body
-    const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    bodyGrad.addColorStop(0, '#fff9c4');
-    bodyGrad.addColorStop(1, '#ffeb3b');
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fill();
     ctx.restore();
+  });
 }
 
 // ============================================================
-// MOON drawing
+//  SNOW
 // ============================================================
-function drawMoon() {
-    if (isDay) return;
-    const px = canvas.width * 0.75;
-    const py = canvas.height * 0.12;
-    const r = 22;
+function updateAndDrawSnow(){
+  if(!isSnowing()) return;
+  const target=condition==='snow-grains'?60:140;
+  while(snowflakes.length<target) spawnFlake(false);
+  snowflakes.forEach(s=>{
+    s.wobble+=s.wobbleSpd;
+    s.x+=Math.sin(s.wobble)*s.wobbleAmp*.5+s.vx;
+    s.y+=s.vy; s.angle+=s.spin;
+  });
+  snowflakes=snowflakes.filter(s=>s.y<HY()+12);
 
-    ctx.save();
-    ctx.translate(px, py);
-
-    // Glow
-    const glow = ctx.createRadialGradient(0, 0, r, 0, 0, r * 3);
-    glow.addColorStop(0, 'rgba(255,253,231,0.25)');
-    glow.addColorStop(1, 'rgba(255,253,231,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Moon body
-    ctx.fillStyle = '#fff9e6';
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Shadow (crescent)
-    const shadowX = r * 0.4 * (moonPhase > 0.5 ? 1 : -1);
-    ctx.fillStyle = '#0d0d2b';
-    ctx.beginPath();
-    ctx.arc(shadowX, 0, r * 0.85, 0, Math.PI * 2);
-    ctx.fill();
-
+  ctx.fillStyle='rgba(230,242,255,.88)';
+  snowflakes.forEach(sf=>{
+    ctx.save(); ctx.globalAlpha=.9;
+    ctx.translate(sf.x,sf.y); ctx.rotate(sf.angle);
+    // Draw 6-pointed flake for larger, dot for small
+    if(sf.r>=2.5){
+      ctx.strokeStyle='rgba(210,235,255,.9)'; ctx.lineWidth=1;
+      for(let i=0;i<6;i++){
+        const a=i*Math.PI/3;
+        ctx.beginPath();
+        ctx.moveTo(0,0); ctx.lineTo(Math.cos(a)*sf.r*2.2,Math.sin(a)*sf.r*2.2); ctx.stroke();
+      }
+    }
+    ctx.fillStyle='rgba(235,245,255,.95)';
+    ctx.beginPath(); ctx.arc(0,0,sf.r,0,Math.PI*2); ctx.fill();
     ctx.restore();
+  });
 }
 
 // ============================================================
-// STARS
+//  THUNDERSTORM
 // ============================================================
-function updateStars() {
-    if (isDay) return;
-    stars.forEach(s => {
-        s.alpha += s.twinkleSpeed * (s.alpha > 0.9 ? -1 : s.alpha < 0.2 ? 1 : (Math.random() > 0.5 ? 1 : -1));
-        s.alpha = Math.max(0.1, Math.min(1, s.alpha));
-    });
-}
-function drawStars() {
-    if (isDay) return;
-    stars.forEach(s => {
-        ctx.save();
-        ctx.globalAlpha = s.alpha;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// CLOUDS
-// ============================================================
-function updateClouds() {
-    clouds.forEach(c => { c.x += c.speed; });
-    clouds = clouds.filter(c => c.x < canvas.width + 200);
-    const maxClouds = condition === 'clear' ? 2 : condition === 'partly-cloudy' ? 4 : 7;
-    if (clouds.length < maxClouds && Math.random() < 0.005) spawnCloud();
-}
-function drawCloud(c) {
-    ctx.save();
-    ctx.globalAlpha = c.alpha;
-    const night = !isDay;
-    ctx.fillStyle = night ? '#2c2c3e' : (condition === 'thunderstorm' || isRaining() ? '#546e7a' : '#eceff1');
-    // Draw puffs
+function updateAndDrawThunder(){
+  if(!isStorm()) return;
+  lightningFlash=Math.max(0,lightningFlash-.04);
+  if(frame>=nextLightFrame){
+    nextLightFrame=frame+Math.floor(Math.random()*130+50);
+    lightningFlash=1;
+    const lx=Math.random()*canvas.width;
+    lightningBolts.push({segs:buildBolt(lx,0,HY()),life:1});
+  }
+  lightningBolts.forEach(b=>b.life-=.07);
+  lightningBolts=lightningBolts.filter(b=>b.life>0);
+  // Flash
+  if(lightningFlash>.04){
+    ctx.fillStyle=\`rgba(200,225,255,\${lightningFlash*.14})\`;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+  // Bolts
+  lightningBolts.forEach(b=>{
+    ctx.save(); ctx.globalAlpha=b.life;
+    ctx.strokeStyle='#c8dcff'; ctx.lineWidth=2;
+    ctx.shadowColor='#7eaaff'; ctx.shadowBlur=14;
     ctx.beginPath();
-    ctx.arc(c.x, c.y, c.h * 0.7, 0, Math.PI * 2);
-    ctx.arc(c.x + c.w * 0.3, c.y - c.h * 0.2, c.h * 0.9, 0, Math.PI * 2);
-    ctx.arc(c.x + c.w * 0.65, c.y, c.h * 0.7, 0, Math.PI * 2);
-    ctx.arc(c.x + c.w * 0.2, c.y + c.h * 0.15, c.h * 0.5, 0, Math.PI * 2);
-    ctx.arc(c.x + c.w * 0.5, c.y + c.h * 0.15, c.h * 0.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-}
-
-// ============================================================
-// RAIN
-// ============================================================
-function updateRain() {
-    const angle = (windDirection - 90) * Math.PI / 180;
-    raindrops.forEach(r => {
-        r.x += r.vx + Math.cos(angle) * speedMultiplier();
-        r.y += r.vy;
-    });
-    raindrops = raindrops.filter(r => r.y < horizonY() + 20 && r.x > -50 && r.x < canvas.width + 50);
-    const target = condition === 'drizzle' ? 40 : isThunderstorm() ? 200 : 90;
-    while (raindrops.length < target) spawnRaindrop(false);
-}
-function drawRain() {
-    if (!isRaining()) return;
-    raindrops.forEach(rd => {
-        ctx.save();
-        ctx.globalAlpha = rd.alpha;
-        if (rd.isHail) {
-            ctx.fillStyle = '#b0e0e6';
-            ctx.beginPath();
-            ctx.arc(rd.x, rd.y, 2.5, 0, Math.PI * 2);
-            ctx.fill();
-        } else {
-            ctx.strokeStyle = condition === 'drizzle' ? 'rgba(144,202,249,0.6)' : 'rgba(100,181,246,0.8)';
-            ctx.lineWidth = condition === 'drizzle' ? 1 : 1.5;
-            ctx.beginPath();
-            ctx.moveTo(rd.x, rd.y);
-            ctx.lineTo(rd.x + rd.vx * 3, rd.y - rd.len);
-            ctx.stroke();
-        }
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// SNOW
-// ============================================================
-function updateSnow() {
-    snowflakes.forEach(s => {
-        s.wobble += s.wobbleSpeed;
-        s.x += Math.sin(s.wobble) * 0.5 + s.vx;
-        s.y += s.vy;
-        s.angle += s.spin;
-    });
-    snowflakes = snowflakes.filter(s => s.y < horizonY() + 10);
-    const target = condition === 'snow-grains' ? 50 : 120;
-    while (snowflakes.length < target) spawnSnowflake(false);
-}
-function drawSnow() {
-    if (!isSnowing()) return;
-    snowflakes.forEach(sf => {
-        ctx.save();
-        ctx.globalAlpha = 0.85;
-        ctx.fillStyle = '#e3f2fd';
-        ctx.translate(sf.x, sf.y);
-        ctx.rotate(sf.angle);
-        ctx.beginPath();
-        ctx.arc(0, 0, sf.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// THUNDERSTORM lightning
-// ============================================================
-let nextLightningFrame = 0;
-let lightningBolts = [];
-
-function updateThunderstorm() {
-    if (!isThunderstorm()) return;
-    lightningFlash = Math.max(0, lightningFlash - 0.05);
-    if (frame >= nextLightningFrame) {
-        nextLightningFrame = frame + Math.floor(Math.random() * 120 + 40);
-        lightningFlash = 1.0;
-        const x = Math.random() * canvas.width;
-        lightningBolts.push({ x, segments: buildLightning(x, 0, horizonY()), life: 1.0 });
-    }
-    lightningBolts.forEach(b => { b.life -= 0.08; });
-    lightningBolts = lightningBolts.filter(b => b.life > 0);
-}
-
-function buildLightning(x, yStart, yEnd) {
-    const segs = [];
-    let cx = x, cy = yStart;
-    while (cy < yEnd) {
-        const nx = cx + (Math.random() - 0.5) * 50;
-        const ny = cy + Math.random() * 40 + 20;
-        segs.push({ x1: cx, y1: cy, x2: nx, y2: ny });
-        cx = nx; cy = ny;
-    }
-    return segs;
-}
-
-function drawThunderstorm() {
-    if (!isThunderstorm()) return;
-    // Flash overlay
-    if (lightningFlash > 0.05) {
-        ctx.save();
-        ctx.fillStyle = \`rgba(200,230,255,\${lightningFlash * 0.15})\`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
-    }
-    // Bolts
-    lightningBolts.forEach(b => {
-        ctx.save();
-        ctx.globalAlpha = b.life;
-        ctx.strokeStyle = '#c0d8ff';
-        ctx.lineWidth = 2;
-        ctx.shadowColor = '#80b0ff';
-        ctx.shadowBlur = 12;
-        ctx.beginPath();
-        b.segments.forEach((s, i) => {
-            if (i === 0) ctx.moveTo(s.x1, s.y1);
-            ctx.lineTo(s.x2, s.y2);
-        });
-        ctx.stroke();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// FOG
-// ============================================================
-function updateFog() {
-    fogParticles.forEach(f => { f.x += f.speed; });
-    fogParticles = fogParticles.filter(f => f.x < canvas.width + 200);
-    if (fogParticles.length < 25 && Math.random() < 0.03) spawnFogParticle(false);
-}
-function drawFog() {
-    if (condition !== 'fog') return;
-    fogParticles.forEach(f => {
-        ctx.save();
-        ctx.globalAlpha = f.alpha;
-        const grad = ctx.createRadialGradient(f.x + f.w / 2, f.y + f.h / 2, 0, f.x + f.w / 2, f.y + f.h / 2, f.w / 2);
-        grad.addColorStop(0, 'rgba(176,190,197,1)');
-        grad.addColorStop(1, 'rgba(176,190,197,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.ellipse(f.x + f.w / 2, f.y + f.h / 2, f.w / 2, f.h / 2, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// BIRDS  (simple W-shape wings)
-// ============================================================
-function updateBirds() {
-    if (!isDay || isRaining() || isSnowing()) return;
-    birds.forEach(b => {
-        b.x += b.speed;
-        b.wing += 0.12 * b.wingDir * speedMultiplier();
-        if (Math.abs(b.wing) > 0.4) b.wingDir *= -1;
-    });
-    birds = birds.filter(b => b.x < canvas.width + 50);
-    if (birds.length < 5 && Math.random() < 0.004) spawnBird();
-}
-function drawBirds() {
-    if (!isDay) return;
-    birds.forEach(b => {
-        ctx.save();
-        ctx.translate(b.x, b.y);
-        ctx.strokeStyle = isDay ? '#37474f' : '#90a4ae';
-        ctx.lineWidth = 1.4;
-        ctx.lineJoin = 'round';
-        const w = b.wing;
-        const s = b.size;
-        ctx.beginPath();
-        // Left wing
-        ctx.moveTo(-s, w * s * 1.5);
-        ctx.quadraticCurveTo(-s * 0.5, -w * s, 0, 0);
-        // Right wing
-        ctx.quadraticCurveTo(s * 0.5, -w * s, s, w * s * 1.5);
-        ctx.stroke();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// AIRPLANE
-// ============================================================
-function updateAirplanes() {
-    if (!isDay || !(condition === 'clear' || condition === 'partly-cloudy')) return;
-    airplanes.forEach(a => {
-        a.x += a.speed;
-        a.trail.push({ x: a.x - 12, y: a.y });
-        if (a.trail.length > 60) a.trail.shift();
-    });
-    airplanes = airplanes.filter(a => a.x < canvas.width + 150);
-    if (airplanes.length < 1 && Math.random() < 0.001) spawnAirplane();
-}
-function drawAirplanes() {
-    airplanes.forEach(a => {
-        // Trail
-        if (a.trail.length > 1) {
-            ctx.save();
-            for (let i = 1; i < a.trail.length; i++) {
-                const alpha = i / a.trail.length * 0.35;
-                ctx.globalAlpha = alpha;
-                ctx.strokeStyle = '#e0f7fa';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(a.trail[i - 1].x, a.trail[i - 1].y);
-                ctx.lineTo(a.trail[i].x, a.trail[i].y);
-                ctx.stroke();
-            }
-            ctx.restore();
-        }
-
-        // Body
-        ctx.save();
-        ctx.translate(a.x, a.y);
-        ctx.fillStyle = '#eceff1';
-        ctx.strokeStyle = '#90a4ae';
-        ctx.lineWidth = 1;
-        // fuselage
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 16, 4, 0, 0, Math.PI * 2);
-        ctx.fill(); ctx.stroke();
-        // wing
-        ctx.beginPath();
-        ctx.moveTo(-2, 0); ctx.lineTo(-8, -11); ctx.lineTo(8, 0); ctx.lineTo(-2, 0);
-        ctx.fill(); ctx.stroke();
-        // tail
-        ctx.beginPath();
-        ctx.moveTo(-14, 0); ctx.lineTo(-18, -6); ctx.lineTo(-12, 0); ctx.lineTo(-14, 0);
-        ctx.fill(); ctx.stroke();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// FIREFLIES
-// ============================================================
-function updateFireflies() {
-    if (isDay || temperature <= 15) return;
-    fireflies.forEach(f => {
-        f.x += f.vx;
-        f.y += f.vy;
-        f.alpha += f.alphaSpeed * f.alphaDir;
-        if (f.alpha >= 1 || f.alpha <= 0) f.alphaDir *= -1;
-        if (f.x < 0 || f.x > canvas.width) f.vx *= -1;
-        if (f.y < horizonY() * 0.5 || f.y > horizonY()) f.vy *= -1;
-    });
-}
-function drawFireflies() {
-    if (isDay) return;
-    fireflies.forEach(f => {
-        ctx.save();
-        ctx.globalAlpha = f.alpha;
-        const grd = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r * 4);
-        grd.addColorStop(0, 'rgba(204,255,51,1)');
-        grd.addColorStop(1, 'rgba(204,255,51,0)');
-        ctx.fillStyle = grd;
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.r * 4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ccff33';
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// LEAVES
-// ============================================================
-function updateLeaves() {
-    if (!CFG.showLeaves || isRaining() || isSnowing()) return;
-    leaves.forEach(l => {
-        l.x += l.vx + Math.sin(frame * 0.02 + l.wobble) * 0.4;
-        l.y += l.vy;
-        l.angle += l.spin;
-        if (!l.wobble) l.wobble = Math.random() * Math.PI * 2;
-    });
-    leaves = leaves.filter(l => l.y < horizonY() + 20);
-    const target = 12;
-    while (leaves.length < target && Math.random() < 0.05) spawnLeaf(false);
-}
-function drawLeaves() {
-    if (!CFG.showLeaves) return;
-    leaves.forEach(l => {
-        ctx.save();
-        ctx.translate(l.x, l.y);
-        ctx.rotate(l.angle);
-        ctx.fillStyle = l.color;
-        ctx.globalAlpha = 0.85;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, l.size, l.size * 0.55, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// CHIMNEY SMOKE
-// ============================================================
-function updateChimneySmoke() {
-    chimneySmoke.forEach(s => {
-        s.x += s.vx;
-        s.y += s.vy;
-        s.r += 0.15;
-        s.alpha -= 0.008;
-        s.life -= 0.01;
-    });
-    chimneySmoke = chimneySmoke.filter(s => s.life > 0 && s.alpha > 0);
-
-    if (!isRaining() && !isThunderstorm() && Math.random() < 0.08) {
-        const hx = canvas.width / 2 - 70;
-        const hy = horizonY() - 90;
-        spawnChimneySmoke(hx, hy);
-    }
-}
-function drawChimneySmoke() {
-    chimneySmoke.forEach(s => {
-        ctx.save();
-        ctx.globalAlpha = s.alpha;
-        ctx.fillStyle = isDay ? '#90a4ae' : '#546e7a';
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    });
-}
-
-// ============================================================
-// SCENE  (ground + house ASCII-art rendered as canvas shapes)
-// ============================================================
-function drawGround() {
-    const hy = horizonY();
-    // Ground
-    const gGrad = ctx.createLinearGradient(0, hy, 0, canvas.height);
-    if (isSnowing()) {
-        gGrad.addColorStop(0, isDay ? '#e8f5e9' : '#c8e6c9');
-        gGrad.addColorStop(1, isDay ? '#f1f8e9' : '#dcedc8');
-    } else {
-        gGrad.addColorStop(0, isDay ? '#388e3c' : '#2e7d32');
-        gGrad.addColorStop(1, isDay ? '#2e7d32' : '#1b5e20');
-    }
-    ctx.fillStyle = gGrad;
-    ctx.fillRect(0, hy, canvas.width, canvas.height - hy);
-
-    // Horizon line glow
-    ctx.save();
-    ctx.strokeStyle = isSnowing() ? 'rgba(200,230,200,0.3)' : 'rgba(76,175,80,0.3)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, hy); ctx.lineTo(canvas.width, hy);
+    b.segs.forEach((s,i)=>{ i===0?ctx.moveTo(s.x1,s.y1):void 0; ctx.lineTo(s.x2,s.y2); });
     ctx.stroke();
     ctx.restore();
+  });
+}
+function buildBolt(x,ys,ye){
+  const segs=[];let cx=x,cy=ys;
+  while(cy<ye){
+    const nx=cx+(Math.random()-.5)*55, ny=cy+Math.random()*38+18;
+    segs.push({x1:cx,y1:cy,x2:nx,y2:ny}); cx=nx; cy=ny;
+  }
+  return segs;
 }
 
-function drawHouse() {
-    const hy = horizonY();
-    const cx = canvas.width / 2 - 50;
-    const houseW = 130;
-    const houseH = 80;
-    const by = hy - 6; // base y
+// ============================================================
+//  FOG
+// ============================================================
+function updateAndDrawFog(){
+  if(condition!=='fog') return;
+  fogParticles.forEach(f=>f.x+=f.spd);
+  fogParticles=fogParticles.filter(f=>f.x<canvas.width+260);
+  if(fogParticles.length<30&&Math.random()<.04) spawnFog(false);
+  fogParticles.forEach(f=>{
+    ctx.save(); ctx.globalAlpha=f.alpha;
+    const g=ctx.createRadialGradient(f.x+f.w/2,f.y+f.h/2,0,f.x+f.w/2,f.y+f.h/2,f.w/2);
+    g.addColorStop(0,'rgba(176,190,197,1)'); g.addColorStop(1,'rgba(176,190,197,0)');
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.ellipse(f.x+f.w/2,f.y+f.h/2,f.w/2,f.h/2,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
 
-    const roofColor = isDay ? '#c62828' : '#6a0dad';
-    const wallColor = isDay ? 'rgba(210,180,140,1)' : 'rgba(100,70,50,1)';
-    const windowColor = isDay ? '#80deea' : '#fff176';
-    const doorColor = '#6d4c41';
+// ============================================================
+//  LEAVES
+// ============================================================
+function updateAndDrawLeaves(){
+  if(!CFG.showLeaves||isRaining()||isSnowing()) return;
+  // Guarantee target count on first few frames
+  const target=20;
+  while(leaves.length<target) spawnLeaf(false);
+  leaves.forEach(l=>{
+    l.wobble+=.025;
+    l.x+=l.vx+Math.sin(l.wobble)*l.wobbleAmp*.5;
+    l.y+=l.vy; l.angle+=l.spin;
+  });
+  leaves=leaves.filter(l=>l.y<HY()+20&&l.x>-30&&l.x<canvas.width+30);
+  // Respawn fallen
+  while(leaves.length<target) spawnLeaf(false);
 
-    // Roof (triangle)
+  leaves.forEach(l=>{
     ctx.save();
-    ctx.fillStyle = roofColor;
-    ctx.shadowColor = 'rgba(0,0,0,0.3)';
-    ctx.shadowBlur = 8;
+    ctx.translate(l.x,l.y); ctx.rotate(l.angle);
+    ctx.globalAlpha=.88;
+    ctx.fillStyle=l.color;
+    // Leaf shape: pointed ellipse
     ctx.beginPath();
-    ctx.moveTo(cx - 15, by - houseH + 10);
-    ctx.lineTo(cx + houseW + 15, by - houseH + 10);
-    ctx.lineTo(cx + houseW * 0.7, by - houseH - 35);
-    ctx.lineTo(cx + houseW * 0.3, by - houseH - 35);
-    ctx.closePath();
+    ctx.ellipse(0,0,l.size,l.size*.5,0,0,Math.PI*2);
     ctx.fill();
+    // Central vein
+    ctx.strokeStyle='rgba(0,0,0,.2)'; ctx.lineWidth=.8;
+    ctx.beginPath(); ctx.moveTo(-l.size*.9,0); ctx.lineTo(l.size*.9,0); ctx.stroke();
     ctx.restore();
+  });
+}
 
-    // Chimney
-    ctx.save();
-    ctx.fillStyle = '#5d4037';
-    ctx.fillRect(cx + 22, by - houseH - 50, 14, 28);
-    ctx.restore();
+// ============================================================
+//  BIRDS
+// ============================================================
+function updateAndDrawBirds(){
+  if(!isDay||isRaining()||isSnowing()) return;
+  birds.forEach(b=>{
+    b.x+=b.spd;
+    b.wing=(b.wing+b.wingSpd)%(Math.PI*2);
+  });
+  birds=birds.filter(b=>b.x<canvas.width+60);
+  if(birds.length<5&&Math.random()<.004) spawnBird();
 
-    // Wall
-    ctx.save();
-    ctx.fillStyle = wallColor;
-    ctx.shadowColor = 'rgba(0,0,0,0.2)';
-    ctx.shadowBlur = 4;
-    ctx.fillRect(cx, by - houseH, houseW, houseH);
-    ctx.restore();
-
-    // Windows (2x)
-    ctx.save();
-    ctx.fillStyle = windowColor;
-    ctx.shadowColor = windowColor;
-    ctx.shadowBlur = isDay ? 0 : 12;
-    ctx.fillRect(cx + 15, by - houseH + 18, 22, 20);
-    ctx.fillRect(cx + houseW - 37, by - houseH + 18, 22, 20);
-    // window pane cross
-    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-    ctx.lineWidth = 1;
+  birds.forEach(b=>{
+    ctx.save(); ctx.translate(b.x,b.y);
+    ctx.strokeStyle='rgba(55,71,79,.85)'; ctx.lineWidth=1.3; ctx.lineCap='round';
+    const wy=Math.sin(b.wing)*b.size*.9;
     ctx.beginPath();
-    ctx.moveTo(cx + 26, by - houseH + 18); ctx.lineTo(cx + 26, by - houseH + 38);
-    ctx.moveTo(cx + 15, by - houseH + 28); ctx.lineTo(cx + 37, by - houseH + 28);
-    ctx.moveTo(cx + houseW - 26, by - houseH + 18); ctx.lineTo(cx + houseW - 26, by - houseH + 38);
-    ctx.moveTo(cx + houseW - 37, by - houseH + 28); ctx.lineTo(cx + houseW - 15, by - houseH + 28);
+    ctx.moveTo(-b.size,wy);
+    ctx.quadraticCurveTo(-b.size*.5,-b.size*.3,0,0);
+    ctx.quadraticCurveTo(b.size*.5,-b.size*.3,b.size,wy);
     ctx.stroke();
     ctx.restore();
+  });
+}
 
-    // Door
-    ctx.save();
-    ctx.fillStyle = doorColor;
-    const dw = 20, dh = 30;
-    const dx = cx + houseW / 2 - dw / 2;
-    ctx.fillRect(dx, by - dh, dw, dh);
-    ctx.beginPath();
-    ctx.arc(dx + dw / 2, by - dh, dw / 2, Math.PI, 0);
-    ctx.fill();
-    // door knob
-    ctx.fillStyle = '#ffd54f';
-    ctx.beginPath();
-    ctx.arc(dx + dw - 5, by - dh / 2, 2, 0, Math.PI * 2);
-    ctx.fill();
+// ============================================================
+//  FIREFLIES
+// ============================================================
+function updateAndDrawFireflies(){
+  if(isDay||temperature<=15) return;
+  fireflies.forEach(f=>{
+    f.x+=f.vx; f.y+=f.vy;
+    f.alpha+=f.aSpd*f.aDir;
+    if(f.alpha>=1||f.alpha<=0) f.aDir*=-1;
+    if(f.x<0||f.x>canvas.width) f.vx*=-1;
+    if(f.y<HY()*.45||f.y>HY()) f.vy*=-1;
+  });
+  fireflies.forEach(f=>{
+    ctx.save(); ctx.globalAlpha=f.alpha;
+    const g=ctx.createRadialGradient(f.x,f.y,0,f.x,f.y,f.r*5);
+    g.addColorStop(0,'rgba(200,255,50,1)'); g.addColorStop(1,'rgba(200,255,50,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(f.x,f.y,f.r*5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#ccff33'; ctx.beginPath(); ctx.arc(f.x,f.y,f.r,0,Math.PI*2); ctx.fill();
     ctx.restore();
-
-    // Road / path
-    ctx.save();
-    ctx.fillStyle = isDay ? '#9e9e9e' : '#616161';
-    ctx.beginPath();
-    ctx.moveTo(cx + houseW / 2 - 12, by);
-    ctx.lineTo(cx + houseW / 2 + 12, by);
-    ctx.lineTo(cx + houseW / 2 + 20, hy + 10);
-    ctx.lineTo(cx + houseW / 2 - 20, hy + 10);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    // Fence
-    for (let i = 0; i < 6; i++) {
-        const fx = cx - 50 + i * 14;
-        const fy = by - 20;
-        ctx.save();
-        ctx.fillStyle = isDay ? '#ffe082' : '#8d6e63';
-        ctx.fillRect(fx, fy, 4, 20);
-        ctx.beginPath();
-        ctx.moveTo(fx, fy);
-        ctx.lineTo(fx + 2, fy - 6);
-        ctx.lineTo(fx + 4, fy);
-        ctx.fill();
-        ctx.restore();
-    }
-    for (let i = 0; i < 6; i++) {
-        const fx = cx + houseW + 8 + i * 14;
-        const fy = by - 20;
-        ctx.save();
-        ctx.fillStyle = isDay ? '#ffe082' : '#8d6e63';
-        ctx.fillRect(fx, fy, 4, 20);
-        ctx.beginPath();
-        ctx.moveTo(fx, fy);
-        ctx.lineTo(fx + 2, fy - 6);
-        ctx.lineTo(fx + 4, fy);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-function drawDecorations() {
-    const hy = horizonY();
-    // Trees (left)
-    for (let t = 0; t < 3; t++) {
-        const tx = 40 + t * 60;
-        const ty = hy - 5;
-        drawTree(tx, ty, isDay);
-    }
-    // Trees (right)
-    for (let t = 0; t < 2; t++) {
-        const tx = canvas.width - 60 - t * 60;
-        const ty = hy - 5;
-        drawTree(tx, ty, isDay);
-    }
-}
-
-function drawTree(x, y, day) {
-    const snowOnTree = isSnowing() || condition === 'snow-grains';
-    // Trunk
-    ctx.save();
-    ctx.fillStyle = day ? '#5d4037' : '#3e2723';
-    ctx.fillRect(x - 4, y - 28, 8, 28);
-    ctx.restore();
-    // Foliage (layered triangles)
-    const leafColor = snowOnTree ? '#a5d6a7' : (day ? '#2e7d32' : '#1b5e20');
-    const snowColor = 'rgba(255,255,255,0.8)';
-    [0, 10, 20].forEach((offset, i) => {
-        const w = 30 - i * 4;
-        const h = 22;
-        const layerY = y - 28 - offset;
-        ctx.save();
-        ctx.fillStyle = leafColor;
-        ctx.beginPath();
-        ctx.moveTo(x - w, layerY);
-        ctx.lineTo(x + w, layerY);
-        ctx.lineTo(x, layerY - h);
-        ctx.closePath();
-        ctx.fill();
-        if (snowOnTree) {
-            ctx.fillStyle = snowColor;
-            ctx.beginPath();
-            ctx.moveTo(x - w * 0.4, layerY - h * 0.4);
-            ctx.lineTo(x + w * 0.4, layerY - h * 0.4);
-            ctx.lineTo(x, layerY - h);
-            ctx.closePath();
-            ctx.fill();
-        }
-        ctx.restore();
-    });
+  });
 }
 
 // ============================================================
-// HUD
+//  HUD
 // ============================================================
-function updateHUD() {
-    if (CFG.hideHUD) {
-        hud.style.display = 'none';
-        return;
-    }
-    hud.style.display = 'block';
-
-    if (!weatherData && !isOffline) {
-        hud.innerHTML = 'Weather: Loading... <span class="spinner-inline">|</span>';
-        return;
-    }
-
-    const condText = condition.replace(/-/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
-    const tempStr = formatTemp(temperature);
-    const windStr = formatWind(windSpeed);
-    const precipStr = formatPrecip(precipitation);
-
-    let locStr = '';
-    if (!CFG.hideLocation) {
-        const lat = CFG.latitude >= 0 ? CFG.latitude.toFixed(2) + '°N' : (-CFG.latitude).toFixed(2) + '°S';
-        const lon = CFG.longitude >= 0 ? CFG.longitude.toFixed(2) + '°E' : (-CFG.longitude).toFixed(2) + '°W';
-        locStr = \`<span>📍 \${lat}, \${lon}</span>\`;
-    }
-
-    const offlineTag = isOffline ? '<span class="offline">OFFLINE</span>' : '';
-
-    hud.innerHTML = \`\${offlineTag}<span>🌤 \${condText}</span><span>🌡 \${tempStr}</span><span>💨 \${windStr}</span><span>🌧 \${precipStr}</span>\${locStr}\`;
+function updateHUD(){
+  if(CFG.hideHUD){ hud.style.display='none'; return; }
+  hud.style.display='block';
+  if(!weatherData&&!isOffline){ hud.textContent='Weather: Loading...'; return; }
+  const ct=condition.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  const t=fmtT(temperature), w=fmtW(windSpeed), p=fmtP(precipitation);
+  let loc='';
+  if(!CFG.hideLocation){
+    const la=CFG.latitude>=0?CFG.latitude.toFixed(2)+'°N':(-CFG.latitude).toFixed(2)+'°S';
+    const lo=CFG.longitude>=0?CFG.longitude.toFixed(2)+'°E':(-CFG.longitude).toFixed(2)+'°W';
+    loc=\`<span>📍 \${la}, \${lo}</span>\`;
+  }
+  const off=isOffline?'<span class="offline">OFFLINE</span>':'';
+  hud.innerHTML=\`\${off}<span>🌤 \${ct}</span><span>🌡 \${t}</span><span>💨 \${w}</span><span>🌧 \${p}</span>\${loc}\`;
 }
-
-function formatTemp(v) {
-    if (CFG.temperatureUnit === 'fahrenheit') return (v * 9 / 5 + 32).toFixed(1) + '°F';
-    return v.toFixed(1) + '°C';
-}
-function formatWind(v) {
-    let val = v, unit = 'km/h';
-    if (CFG.windSpeedUnit === 'ms') { val = v / 3.6; unit = 'm/s'; }
-    else if (CFG.windSpeedUnit === 'mph') { val = v * 0.621371; unit = 'mph'; }
-    else if (CFG.windSpeedUnit === 'kn') { val = v * 0.539957; unit = 'kn'; }
-    return val.toFixed(1) + ' ' + unit;
-}
-function formatPrecip(v) {
-    if (CFG.precipitationUnit === 'inch') return (v / 25.4).toFixed(2) + '"';
-    return v.toFixed(1) + 'mm';
-}
+const fmtT=v=>CFG.temperatureUnit==='fahrenheit'?(v*9/5+32).toFixed(1)+'°F':v.toFixed(1)+'°C';
+const fmtW=v=>{ let r=v,u='km/h'; if(CFG.windSpeedUnit==='ms'){r=v/3.6;u='m/s';}else if(CFG.windSpeedUnit==='mph'){r=v*.621;u='mph';}else if(CFG.windSpeedUnit==='kn'){r=v*.54;u='kn';} return r.toFixed(1)+' '+u; };
+const fmtP=v=>CFG.precipitationUnit==='inch'?(v/25.4).toFixed(2)+'"':v.toFixed(1)+'mm';
 
 // ============================================================
-// WEATHER FETCH  (Open-Meteo API)
+//  WEATHER FETCH
 // ============================================================
-const WMO_MAP = {
-    0:'clear', 1:'clear', 2:'partly-cloudy', 3:'overcast',
-    45:'fog', 48:'fog',
-    51:'drizzle', 53:'drizzle', 55:'drizzle',
-    61:'rain', 63:'rain', 65:'rain',
-    66:'freezing-rain', 67:'freezing-rain',
-    71:'snow', 73:'snow', 75:'snow',
-    77:'snow-grains',
-    80:'rain-showers', 81:'rain-showers', 82:'rain-showers',
-    85:'snow-showers', 86:'snow-showers',
-    95:'thunderstorm',
-    96:'thunderstorm-hail', 99:'thunderstorm-hail'
-};
+const WMO={0:'clear',1:'clear',2:'partly-cloudy',3:'overcast',45:'fog',48:'fog',51:'drizzle',53:'drizzle',55:'drizzle',61:'rain',63:'rain',65:'rain',66:'freezing-rain',67:'freezing-rain',71:'snow',73:'snow',75:'snow',77:'snow-grains',80:'rain-showers',81:'rain-showers',82:'rain-showers',85:'snow-showers',86:'snow-showers',95:'thunderstorm',96:'thunderstorm-hail',99:'thunderstorm-hail'};
 
-async function fetchWeather() {
-    let lat = CFG.latitude;
-    let lon = CFG.longitude;
-
-    if (CFG.autoLocation) {
-        try {
-            const geo = await fetch('https://ipinfo.io/json').then(r => r.json());
-            if (geo && geo.loc) {
-                const parts = geo.loc.split(',');
-                lat = parseFloat(parts[0]);
-                lon = parseFloat(parts[1]);
-                CFG.latitude = lat;
-                CFG.longitude = lon;
-            }
-        } catch(e) {
-            console.warn('Auto-location failed, using configured coordinates');
-        }
-    }
-
-    const url = \`https://api.open-meteo.com/v1/forecast?latitude=\${lat}&longitude=\${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,cloud_cover,surface_pressure,visibility,is_day,weather_code&daily=sunrise,sunset&forecast_days=1&timezone=auto\`;
-
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('API error ' + resp.status);
-    const data = await resp.json();
-    const c = data.current;
-
-    weatherData = c;
-    isOffline = false;
-
-    temperature = c.temperature_2m;
-    apparentTemp = c.apparent_temperature ?? temperature;
-    humidity = c.relative_humidity_2m;
-    precipitation = c.precipitation;
-    windSpeed = c.wind_speed_10m;
-    windDirection = c.wind_direction_10m;
-    cloudCover = c.cloud_cover;
-    pressure = c.surface_pressure;
-    isDay = c.is_day === 1;
-    condition = WMO_MAP[c.weather_code] ?? 'cloudy';
-
-    initScene();
-    hideLoading();
-    updateHUD();
+async function fetchWeather(){
+  let lat=CFG.latitude, lon=CFG.longitude;
+  if(CFG.autoLocation){
+    try{
+      const g=await fetch('https://ipinfo.io/json').then(r=>r.json());
+      if(g&&g.loc){const pts=g.loc.split(',');lat=parseFloat(pts[0]);lon=parseFloat(pts[1]);CFG.latitude=lat;CFG.longitude=lon;}
+    }catch(e){}
+  }
+  const url=\`https://api.open-meteo.com/v1/forecast?latitude=\${lat}&longitude=\${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,cloud_cover,surface_pressure,is_day,weather_code&forecast_days=1&timezone=auto\`;
+  const r=await fetch(url); if(!r.ok) throw new Error('api');
+  const d=await r.json(); const c=d.current;
+  weatherData=c; isOffline=false;
+  temperature=c.temperature_2m; precipitation=c.precipitation;
+  windSpeed=c.wind_speed_10m; windDirection=c.wind_direction_10m;
+  isDay=c.is_day===1; condition=WMO[c.weather_code]??'cloudy';
+  initScene(); hideLoad(); updateHUD();
 }
 
-function applySimulate(cond, night) {
-    condition = cond ?? condition;
-    isDay = !night;
-    temperature = 20;
-    precipitation = isRaining() ? 2.5 : 0;
-    windSpeed = isThunderstorm() ? 45 : 10;
-    windDirection = 225;
-    humidity = 65;
-    pressure = 1013;
-    weatherData = { simulated: true };
-    initScene();
-    hideLoading();
-    updateHUD();
+function applySimulate(cond,night){
+  condition=cond??condition; isDay=!night;
+  temperature=20; precipitation=isRaining()?2.5:0;
+  windSpeed=isStorm()?45:10; windDirection=225;
+  weatherData={sim:true}; initScene(); hideLoad(); updateHUD();
 }
 
-function useOfflineWeather() {
-    isOffline = true;
-    const conds = ['clear','partly-cloudy','cloudy','rain'];
-    const hour = new Date().getHours();
-    isDay = hour >= 6 && hour < 18;
-    condition = conds[Math.floor(Math.random() * (isDay ? conds.length : 2))];
-    temperature = 15 + Math.random() * 10;
-    precipitation = isRaining() ? 2 : 0;
-    windSpeed = 8 + Math.random() * 7;
-    windDirection = Math.random() * 360;
-    weatherData = { offline: true };
-    initScene();
-    hideLoading();
-    updateHUD();
+function offlineWeather(){
+  isOffline=true;
+  const h=new Date().getHours(); isDay=h>=6&&h<18;
+  condition=['clear','partly-cloudy','cloudy','rain'][Math.floor(Math.random()*4)];
+  temperature=14+Math.random()*11; precipitation=isRaining()?2:0;
+  windSpeed=7+Math.random()*8; windDirection=Math.random()*360;
+  weatherData={offline:true}; initScene(); hideLoad(); updateHUD();
 }
 
-function hideLoading() {
-    loadingOverlay.classList.add('hidden');
+function hideLoad(){ load.classList.add('gone'); }
+
+// ============================================================
+//  MAIN LOOP
+// ============================================================
+function loop(){
+  frame++;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // 1) Sky
+  drawSky();
+
+  // 2) Stars / Moon / Sun (background celestial)
+  updateAndDrawStars();
+  drawMoon();
+  drawSun();
+
+  // 3) Clouds
+  updateAndDrawClouds();
+
+  // 4) Airplane + contrail  ← BEHIND house and trees
+  updateAndDrawPlanes();
+
+  // 5) Birds (high sky)
+  updateAndDrawBirds();
+
+  // 6) Far + mid trees (background layers)
+  drawTrees();  // all layers drawn here, house drawn on top
+
+  // 7) Ground
+  drawGround();
+
+  // 8) Chimney smoke (behind house front)
+  updateAndDrawSmoke();
+
+  // 9) House (in front of mid trees)
+  drawHouse();
+
+  // 10) Weather effects (in front of everything)
+  updateAndDrawRain();
+  updateAndDrawSnow();
+  updateAndDrawThunder();
+  updateAndDrawFog();
+
+  // 11) Fireflies / Leaves (foreground ambience)
+  updateAndDrawFireflies();
+  updateAndDrawLeaves();
+
+  // 12) HUD
+  updateHUD();
+
+  requestAnimationFrame(loop);
 }
 
 // ============================================================
-// MAIN LOOP
+//  VS CODE BRIDGE
 // ============================================================
-function loop() {
-    frame++;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Sky
-    ctx.fillStyle = skyGradient();
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Background layer
-    drawStars(); updateStars();
-    drawMoon();
-    drawSun();
-    clouds.forEach(c => drawCloud(c)); updateClouds();
-
-    // Scene
-    drawGround();
-    drawDecorations();
-    drawChimneySmoke(); updateChimneySmoke();
-    drawHouse();
-
-    // Foreground weather effects
-    drawRain(); updateRain();
-    drawSnow(); updateSnow();
-    drawThunderstorm(); updateThunderstorm();
-    drawFog(); updateFog();
-    drawBirds(); updateBirds();
-    drawAirplanes(); updateAirplanes();
-    drawFireflies(); updateFireflies();
-    drawLeaves(); updateLeaves();
-
-    animFrame = requestAnimationFrame(loop);
-}
-
-// ============================================================
-// VS Code message bridge
-// ============================================================
-const vscode = acquireVsCodeApi();
-
-window.addEventListener('message', e => {
-    const msg = e.data;
-    switch (msg.command) {
-        case 'refreshWeather':
-            fetchWeather().catch(useOfflineWeather);
-            break;
-        case 'simulate':
-            applySimulate(msg.condition, msg.night);
-            break;
-        case 'updateConfig':
-            CFG = msg.config;
-            initScene();
-            updateHUD();
-            break;
-    }
+const vscodeApi = acquireVsCodeApi();
+window.addEventListener('message', e=>{
+  const m=e.data;
+  if(m.command==='refreshWeather') fetchWeather().catch(offlineWeather);
+  else if(m.command==='simulate')  applySimulate(m.condition,m.night);
+  else if(m.command==='updateConfig'){ CFG=m.config; buildTrees(); updateHUD(); }
 });
 
 // ============================================================
-// BOOT
+//  BOOT
 // ============================================================
 loop();
-
-if (SIMULATE.condition) {
-    applySimulate(SIMULATE.condition, SIMULATE.night);
-} else {
-    fetchWeather().catch(() => {
-        useOfflineWeather();
-    });
-}
-
-// Refresh weather every 5 minutes
-setInterval(() => {
-    if (!SIMULATE.condition) {
-        fetchWeather().catch(() => { isOffline = true; updateHUD(); });
-    }
-}, 5 * 60 * 1000);
+if(SIM.condition) applySimulate(SIM.condition,SIM.night);
+else fetchWeather().catch(offlineWeather);
+setInterval(()=>{ if(!SIM.condition) fetchWeather().catch(()=>{ isOffline=true; updateHUD(); }); }, 5*60*1000);
 </script>
 </body>
-</html>`
+</html>`;
 }
