@@ -44,7 +44,7 @@ let SIM = ${simulateJson};
 
 // --- PIXEL MODE CONSTANTS ---
 // Logical pixel resolution for pixel mode (scaled up by CSS)
-const PIXEL_W = 160;
+const PIXEL_W = 300;
 const PIXEL_H = 100;
 
 // --- CANVAS ---
@@ -862,212 +862,365 @@ const fmtP=v=>CFG.precipitationUnit==='inch'?(v/25.4).toFixed(2)+'"':v.toFixed(1
 //  Draws a retro low-res scene using fillRect "pixels".
 //  All coordinates are in PIXEL_W x PIXEL_H logical space.
 // ============================================================
-function renderPixelMode(){
-  const W=canvas.width, H=canvas.height;   // always PIXEL_W x PIXEL_H
 
-  // --- helpers ---
-  function px(x,y,color,size=1){
-    ctx.fillStyle=color;
-    ctx.fillRect(Math.round(x),Math.round(y),size,size);
-  }
-  function hline(x,y,len,color){
-    ctx.fillStyle=color;
-    ctx.fillRect(Math.round(x),Math.round(y),len,1);
-  }
-  function vline(x,y,len,color){
-    ctx.fillStyle=color;
-    ctx.fillRect(Math.round(x),Math.round(y),1,len);
-  }
-  function rect(x,y,w,h,color){
-    ctx.fillStyle=color;
-    ctx.fillRect(Math.round(x),Math.round(y),w,h);
-  }
+// Pixel-mode private particle pools (separate from smooth-mode pools)
+let px_clouds=[], px_drops=[], px_flakes=[], px_leaves=[];
+let px_smoke=[], px_fireflies=[];
 
-  const HYP = Math.round(H*0.73);  // horizon row in pixel coords
+function px_initParticles(){
+  px_clouds=[]; px_drops=[]; px_flakes=[];
+  px_leaves=[]; px_smoke=[]; px_fireflies=[];
 
-  // Sky
-  const skyTop = !isDay?'#010210':isStorm()?'#171728':condition==='fog'?'#8a9ba8':condition==='overcast'||condition==='cloudy'?'#455a64':condition==='clear'?'#0d1b6e':'#1a2f8a';
-  const skyBot = !isDay?'#0b0b26':isStorm()?'#263238':condition==='fog'?'#b0bec5':condition==='overcast'||condition==='cloudy'?'#78909c':condition==='clear'?'#40a0f0':'#5db8f5';
-  // Simple two-band sky gradient approximation
-  for(let y=0;y<HYP;y++){
-    const t=y/HYP;
-    const r=lerp(hexR(skyTop),hexR(skyBot),t)|0;
-    const g2=lerp(hexG(skyTop),hexG(skyBot),t)|0;
-    const b=lerp(hexB(skyTop),hexB(skyBot),t)|0;
-    hline(0,y,W,\`rgb(\${r},\${g2},\${b})\`);
-  }
+  const W=PIXEL_W, H=PIXEL_H, HYP=Math.round(H*0.73);
 
-  // Ground
-  const gndColor=isSnowing()?(isDay?'#b0cce0':'#7ab0cc'):(isDay?'#2d5a1b':'#1b4011');
-  rect(0,HYP,W,H-HYP,gndColor);
-
-  // Stars (night)
-  if(!isDay){
-    stars.forEach(s=>{
-      if(s.a>.5) px(s.x/canvas.width*W|0, s.y/HY()*HYP|0, '#ffffff');
+  // Clouds — capped at pixel-space sizes (w: 10–22px, h: 3–5px)
+  const nc=condition==='clear'?2:condition==='partly-cloudy'?3:condition==='overcast'?6:4;
+  for(let i=0;i<nc;i++){
+    px_clouds.push({
+      x: Math.random()*W,
+      y: Math.random()*HYP*.28+3,
+      w: Math.random()*12+10,   // 10–22 px wide
+      h: Math.random()*2+3,     // 3–5 px tall
+      spd:(Math.random()*.15+.04)*SPD()
     });
   }
 
-  // Moon
-  if(!isDay){
-    const mx=(W*.78)|0, my=(H*.11)|0;
-    for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
-      if(dx*dx+dy*dy<=9) px(mx+dx,my+dy,'#fff8e1');
-    }
-    // Shadow bite
-    for(let dy=-2;dy<=2;dy++) for(let dx=-1;dx<=3;dx++){
-      if(dx*dx*0.7+dy*dy<=4) px(mx+dx+(moonPhase>.5?1:-2),my+dy,'#080820');
-    }
-  }
-
-  // Sun
-  if(isDay && !isRaining() && !isSnowing() && condition!=='fog' && condition!=='overcast'){
-    const sx=(W*.82)|0, sy=(H*.1)|0;
-    // Core
-    for(let dy=-4;dy<=4;dy++) for(let dx=-4;dx<=4;dx++){
-      if(dx*dx+dy*dy<=16) px(sx+dx,sy+dy,'#ffeb3b');
-    }
-    // Rays (simple cross + diagonals)
-    [[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]].forEach(([rx,ry])=>{
-      for(let s=5;s<=7;s++) px(sx+rx*s,sy+ry*s,'rgba(255,235,59,0.6)');
-    });
-  }
-
-  // Pixel clouds
-  clouds.forEach(c=>{
-    const cx2=(c.x/canvas.width*W)|0;
-    const cy2=(c.y/HY()*HYP)|0;
-    const cw2=Math.max(4,(c.w/canvas.width*W)|0);
-    const ch2=Math.max(2,(c.h/HY()*HYP*.5)|0);
-    const cc=!isDay?'#23233a':isStorm()||isRaining()?'#546e7a':'#eceff1';
-    // Draw as a few overlapping rects
-    rect(cx2,cy2,cw2,ch2,cc);
-    rect(cx2+1,cy2-1,cw2-2,ch2+1,cc);
-  });
-
-  // Pixel trees (simple triangle pines + rectangles)
-  const pxTreeCount=8;
-  for(let i=0;i<pxTreeCount;i++){
-    const tx=Math.round((i+.5)/pxTreeCount*W);
-    // Skip centre (house)
-    if(tx>W*.35&&tx<W*.65) continue;
-    const th=Math.round(H*.25+Math.sin(i*2.3)*H*.06);
-    const tc=isDay?'#2d5a1b':'#1a3510';
-    // Trunk
-    vline(tx,HYP-3,3,'#5a3010');
-    // Foliage triangle
-    for(let row=0;row<th;row++){
-      const halfW=Math.round((row/th)*4+1);
-      hline(tx-halfW, HYP-th-3+row, halfW*2+1, tc);
-    }
-  }
-
-  // Pixel house (centre)
-  const hx=Math.round(W/2)-12, hby=HYP-1;
-  const houseW=24, houseH=16;
-  // Wall
-  rect(hx, hby-houseH, houseW, houseH, isDay?'#d7b991':'#5f4128');
-  // Roof
-  const roofC2=isDay?'#b71c1c':'#6a0dad';
-  for(let r=0;r<8;r++){
-    hline(hx-r+houseW/2-1, hby-houseH-r, r*2+2, roofC2);
-  }
-  // Chimney
-  rect(hx+5, hby-houseH-11, 3, 7, '#4e342e');
-  // Windows
-  const winC2=isDay?'#80deea':isStorm()?'#ffd54f':'#fff176';
-  rect(hx+2, hby-houseH+3, 4, 4, winC2);
-  rect(hx+houseW-6, hby-houseH+3, 4, 4, winC2);
-  // Door
-  rect(hx+houseW/2-2, hby-6, 4, 6, '#5d4037');
-
-  // Fence
-  for(let fi=0;fi<4;fi++){
-    vline(hx-4-fi*3, hby-4, 4, isDay?'#c8a84b':'#6d4c41');
-    vline(hx+houseW+2+fi*3, hby-4, 4, isDay?'#c8a84b':'#6d4c41');
-  }
-
-  // Rain / snow / hail pixels
+  // Rain drops
   if(isRaining()){
-    raindrops.forEach(d=>{
-      const rx=(d.x/canvas.width*W)|0, ry=(d.y/canvas.height*H)|0;
-      if(ry<0||ry>=H||rx<0||rx>=W) return;
-      if(d.isHail){
-        px(rx,ry,'rgba(200,230,255,0.9)');
-      } else {
-        px(rx,ry,condition==='drizzle'?'rgba(140,200,255,0.6)':'rgba(100,180,255,0.85)');
-        if(ry>0) px(rx,ry-1,'rgba(100,180,255,0.4)');
-      }
-    });
-  }
-  if(isSnowing()){
-    snowflakes.forEach(s=>{
-      const sx2=(s.x/canvas.width*W)|0, sy2=(s.y/canvas.height*H)|0;
-      if(sy2<0||sy2>=H||sx2<0||sx2>=W) return;
-      px(sx2,sy2,'rgba(235,245,255,0.95)');
-    });
+    const n=condition==='drizzle'?15:isStorm()?40:25;
+    for(let i=0;i<n;i++) px_drops.push(px_spawnDrop(true, W, H, HYP));
   }
 
-  // Lightning flash overlay
-  if(lightningFlash>.1){
-    ctx.fillStyle=\`rgba(200,225,255,\${lightningFlash*.35})\`;
-    ctx.fillRect(0,0,W,H);
+  // Snow flakes
+  if(isSnowing()){
+    const n=condition==='snow-grains'?12:25;
+    for(let i=0;i<n;i++) px_flakes.push(px_spawnFlake(true, W, HYP));
   }
-  // Lightning bolt pixels
-  lightningBolts.forEach(b=>{
-    ctx.globalAlpha=b.life;
-    b.segs.forEach(s=>{
-      const x1=(s.x1/canvas.width*W)|0, y1=(s.y1/canvas.height*H)|0;
-      const x2=(s.x2/canvas.width*W)|0, y2=(s.y2/canvas.height*H)|0;
-      // Bresenham line
-      let dx=Math.abs(x2-x1),dy=Math.abs(y2-y1);
-      let sx2=x1<x2?1:-1,sy2=y1<y2?1:-1;
-      let err=dx-dy,lx=x1,ly=y1;
-      while(true){
-        if(lx>=0&&lx<W&&ly>=0&&ly<H) px(lx,ly,'#c8dcff');
-        if(lx===x2&&ly===y2) break;
-        const e2=2*err;
-        if(e2>-dy){err-=dy;lx+=sx2;}
-        if(e2<dx){err+=dx;ly+=sy2;}
-      }
-    });
-    ctx.globalAlpha=1;
-  });
 
   // Fireflies
-  if(!isDay && temperature>15){
-    fireflies.forEach(f=>{
-      const fx=(f.x/canvas.width*W)|0, fy=(f.y/canvas.height*H)|0;
-      if(fx<0||fx>=W||fy<0||fy>=H) return;
-      ctx.globalAlpha=f.alpha;
-      px(fx,fy,'#ccff33');
-      ctx.globalAlpha=1;
+  if(!isDay && temperature>15 && (condition==='clear'||condition==='partly-cloudy')){
+    for(let i=0;i<8;i++) px_fireflies.push({
+      x:Math.random()*W, y:HYP*.4+Math.random()*HYP*.55,
+      vx:(Math.random()-.5)*.3, vy:(Math.random()-.5)*.2,
+      alpha:Math.random(), aDir:Math.random()>.5?1:-1, aSpd:.03
     });
   }
-
-  // Chimney smoke pixels
-  smoke.forEach(s=>{
-    const sx2=(s.x/canvas.width*W)|0, sy2=(s.y/canvas.height*H)|0;
-    if(sx2<0||sx2>=W||sy2<0||sy2>=H) return;
-    ctx.globalAlpha=s.alpha*.7;
-    px(sx2,sy2,isDay?'#90a4ae':'#546e7a');
-    ctx.globalAlpha=1;
-  });
 
   // Leaves
   if(CFG.showLeaves && !isRaining() && !isSnowing()){
-    leaves.forEach(l=>{
-      const lx=(l.x/canvas.width*W)|0, ly=(l.y/canvas.height*H)|0;
-      if(lx<0||lx>=W||ly<0||ly>=H) return;
-      ctx.globalAlpha=.88;
-      px(lx,ly,l.color);
+    for(let i=0;i<8;i++) px_leaves.push(px_spawnLeaf(true, W, HYP));
+  }
+}
+
+function px_spawnDrop(init, W, H, HYP){
+  const drift=((windDirection%360)<180?1:-1)*(windSpeed/200)*(Math.random()*.5+.2);
+  return {
+    x:Math.random()*W,
+    y:init?Math.random()*HYP:-2,
+    vx:drift, vy:(Math.random()*1.2+1)*SPD(),
+    isHail:condition==='thunderstorm-hail'||condition==='freezing-rain'
+  };
+}
+function px_spawnFlake(init, W, HYP){
+  return {
+    x:Math.random()*W, y:init?Math.random()*HYP:-1,
+    vy:(.4+Math.random()*.5)*SPD(), vx:(Math.random()-.5)*.3,
+    wobble:Math.random()*Math.PI*2, wobbleSpd:Math.random()*.08+.02
+  };
+}
+function px_spawnLeaf(init, W, HYP){
+  return {
+    x:Math.random()*W, y:init?Math.random()*HYP:-1,
+    vy:(.5+Math.random()*.7)*SPD(), vx:(Math.random()-.5)*.6,
+    wobble:Math.random()*Math.PI*2,
+    color:['#d32f2f','#e64a19','#f57f17','#bf360c','#ff8f00'][Math.floor(Math.random()*5)]
+  };
+}
+
+function renderPixelMode(){
+  const W=PIXEL_W, H=PIXEL_H;
+  const HYP=Math.round(H*0.73);
+
+  // ── draw helpers ──────────────────────────────────────────
+  function dot(x,y,color){
+    ctx.fillStyle=color;
+    ctx.fillRect(x|0, y|0, 1, 1);
+  }
+  function hline(x,y,len,color){
+    ctx.fillStyle=color;
+    ctx.fillRect(x|0, y|0, len, 1);
+  }
+  function vline(x,y,len,color){
+    ctx.fillStyle=color;
+    ctx.fillRect(x|0, y|0, 1, len);
+  }
+  function rect(x,y,w,h,color){
+    ctx.fillStyle=color;
+    ctx.fillRect(x|0, y|0, w, h);
+  }
+  function bline(x1,y1,x2,y2,color){
+    // Bresenham — both endpoints already in pixel coords
+    let dx=Math.abs(x2-x1), dy=Math.abs(y2-y1);
+    let sx=x1<x2?1:-1, sy=y1<y2?1:-1;
+    let err=dx-dy, lx=x1|0, ly=y1|0;
+    for(let guard=0;guard<200;guard++){
+      if(lx>=0&&lx<W&&ly>=0&&ly<H) dot(lx,ly,color);
+      if(lx===(x2|0)&&ly===(y2|0)) break;
+      const e2=2*err;
+      if(e2>-dy){err-=dy;lx+=sx;}
+      if(e2<dx) {err+=dx;ly+=sy;}
+    }
+  }
+
+  // ── Sky gradient ──────────────────────────────────────────
+  const skyTop=!isDay?'#010210':isStorm()?'#171728':condition==='fog'?'#8a9ba8':condition==='overcast'||condition==='cloudy'?'#455a64':condition==='clear'?'#0d1b6e':'#1a2f8a';
+  const skyBot=!isDay?'#0b0b26':isStorm()?'#263238':condition==='fog'?'#b0bec5':condition==='overcast'||condition==='cloudy'?'#78909c':condition==='clear'?'#40a0f0':'#5db8f5';
+  for(let y=0;y<HYP;y++){
+    const t=y/HYP;
+    const r=(lerp(hexR(skyTop),hexR(skyBot),t))|0;
+    const g2=(lerp(hexG(skyTop),hexG(skyBot),t))|0;
+    const b=(lerp(hexB(skyTop),hexB(skyBot),t))|0;
+    hline(0,y,W,\`rgb(\${r},\${g2},\${b})\`);
+  }
+
+  // ── Ground ────────────────────────────────────────────────
+  const gndC=isSnowing()?(isDay?'#b0cce0':'#7ab0cc'):(isDay?'#2d5a1b':'#1b4011');
+  rect(0,HYP,W,H-HYP,gndC);
+
+  // ── Stars ─────────────────────────────────────────────────
+  if(!isDay){
+    // Reuse the smooth-mode star array — positions are 0..canvas.width/height
+    // but canvas is PIXEL_W×PIXEL_H in pixel mode, so coords are already right.
+    stars.forEach(s=>{
+      if(s.a>.5) dot(s.x|0, s.y|0, '#ffffff');
+    });
+  }
+
+  // ── Moon ──────────────────────────────────────────────────
+  if(!isDay){
+    const mx=(W*.78)|0, my=(H*.11)|0;
+    // 3-pixel radius circle
+    for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
+      if(dx*dx+dy*dy<=9) dot(mx+dx, my+dy, '#fff8e1');
+    }
+    // Shadow bite (crescent)
+    const bite=moonPhase>.5?2:-2;
+    for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++){
+      if(dx*dx+dy*dy<=5) dot(mx+dx+bite, my+dy, '#080820');
+    }
+  }
+
+  // ── Sun ───────────────────────────────────────────────────
+  if(isDay && !isRaining() && !isSnowing() && condition!=='fog' && condition!=='overcast'){
+    const sx=(W*.82)|0, sy=(H*.1)|0;
+    for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
+      if(dx*dx+dy*dy<=9) dot(sx+dx, sy+dy, '#ffeb3b');
+    }
+    // Rays — 8 directions, 2 pixels out from edge
+    [[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]].forEach(([rx,ry])=>{
+      dot(sx+rx*5, sy+ry*5, '#ffe082');
+      dot(sx+rx*6, sy+ry*6, '#ffe08288');
+    });
+  }
+
+  // ── Clouds ────────────────────────────────────────────────
+  // Update
+  px_clouds.forEach(c=>{ c.x+=c.spd; if(c.x>W+25) c.x=-25; });
+  const cc=!isDay?'#23233a':isStorm()||isRaining()?'#546e7a':'#eceff1';
+  // Replenish
+  const maxC=condition==='clear'?2:condition==='partly-cloudy'?3:6;
+  while(px_clouds.length<maxC) px_clouds.push({
+    x:-10, y:Math.random()*HYP*.25+3,
+    w:Math.random()*12+10, h:Math.random()*2+3,
+    spd:(Math.random()*.15+.04)*SPD()
+  });
+  // Draw: each cloud is a 3-bump pixel-art shape
+  px_clouds.forEach(c=>{
+    const cx=c.x|0, cy=c.y|0, cw=c.w|0, ch=c.h|0;
+    // Bottom bar (widest)
+    rect(cx,       cy+1,    cw,        ch,   cc);
+    // Left bump
+    rect(cx+1,     cy,      (cw*.4)|0, ch+1, cc);
+    // Centre bump (tallest)
+    rect(cx+(cw*.3)|0, cy-1, (cw*.45)|0, ch+2, cc);
+    // Right bump
+    rect(cx+(cw*.65)|0, cy,  (cw*.3)|0, ch+1, cc);
+  });
+
+  // ── Trees ─────────────────────────────────────────────────
+  // 8 trees, skip house zone (35%–65% of W)
+  for(let i=0;i<8;i++){
+    const tx=Math.round((i+.5)/8*W);
+    if(tx>W*.33&&tx<W*.67) continue;
+    // Vary height per position deterministically
+    const th=6+((i*7+3)%7);  // 6–12px tall
+    const tc=isDay?'#2d5a1b':'#1a3510';
+    const tcs=isDay?'#3a7a25':'#224518'; // slightly lighter shade
+    // Trunk (1px wide, 2px tall)
+    vline(tx, HYP-2, 2, '#5a3010');
+    // Foliage: triangle widening toward base (row 0 = apex at top)
+    for(let row=0;row<th;row++){
+      // halfW grows from 0 at apex to ~3 at base
+      const halfW=Math.round(row/th*3);
+      const rowColor=(row<th/2)?tcs:tc;
+      hline(tx-halfW, HYP-th-2+row, halfW*2+1, rowColor);
+    }
+  }
+
+  // ── House ─────────────────────────────────────────────────
+  const hx=Math.round(W/2)-12, hby=HYP-1;
+  const houseW=24, houseH=14;
+  const wallC=isDay?'#d7b991':'#5f4128';
+  const roofC=isDay?'#b71c1c':'#6a0dad';
+  const winC=isDay?'#80deea':isStorm()?'#ffd54f':'#fff176';
+
+  // Wall
+  rect(hx, hby-houseH, houseW, houseH, wallC);
+
+  // Chimney (must be drawn before roof so roof overlaps it correctly)
+  rect(hx+6, hby-houseH-8, 3, 8, '#4e342e');
+
+  // Roof — triangle pointing UP: row 0 is the WIDEST (base), last row is apex.
+  // Base sits at hby-houseH, apex is roofH rows above that.
+  const roofH=8;
+  for(let r=0;r<roofH;r++){
+    // r=0 → full width (houseW+2 with 1px overhang each side)
+    // r=roofH-1 → 1px wide (apex)
+    const halfW=Math.round(((roofH-1-r)/(roofH-1))*(houseW/2+1));
+    const rowY=hby-houseH-r;          // moves UP as r increases
+    hline(hx+houseW/2-halfW, rowY, halfW*2+1, roofC);
+  }
+
+  // Windows (2×2)
+  rect(hx+3,         hby-houseH+4, 4, 4, winC);
+  rect(hx+houseW-7,  hby-houseH+4, 4, 4, winC);
+  // Window cross-bars
+  vline(hx+5,        hby-houseH+4, 4, '#00000033');
+  hline(hx+3,        hby-houseH+6, 4, '#00000033');
+  vline(hx+houseW-5, hby-houseH+4, 4, '#00000033');
+  hline(hx+houseW-7, hby-houseH+6, 4, '#00000033');
+
+  // Door
+  rect(hx+houseW/2-2, hby-5, 4, 5, '#5d4037');
+  dot(hx+houseW/2+1, hby-3, '#ffd54f');  // door knob
+
+  // Path
+  rect(hx+houseW/2-2, hby, 4, 2, isDay?'#9e9e9e':'#616161');
+
+  // Fence posts (3px tall, every 3px, left and right of house)
+  const fenceC=isDay?'#c8a84b':'#6d4c41';
+  for(let fi=0;fi<5;fi++){
+    vline(hx-3-fi*3,          hby-3, 3, fenceC);
+    vline(hx+houseW+2+fi*3,   hby-3, 3, fenceC);
+  }
+  // Fence rails
+  hline(hx-3-4*3, hby-2, 4*3+3, fenceC);
+  hline(hx+houseW+2, hby-2, 4*3+3, fenceC);
+
+  // ── Weather particles ─────────────────────────────────────
+
+  // Rain / hail
+  if(isRaining()){
+    const target=condition==='drizzle'?15:isStorm()?40:25;
+    while(px_drops.length<target) px_drops.push(px_spawnDrop(false,W,H,HYP));
+    px_drops.forEach(d=>{ d.x+=d.vx; d.y+=d.vy; });
+    px_drops=px_drops.filter(d=>d.y<HYP+2&&d.x>-2&&d.x<W+2);
+    px_drops.forEach(d=>{
+      if(d.x<0||d.x>=W||d.y<0||d.y>=H) return;
+      dot(d.x|0, d.y|0, d.isHail?'#c8e6ff':'rgba(100,180,255,0.9)');
+      if(!d.isHail && (d.y-1)>=0) dot(d.x|0, (d.y-1)|0, 'rgba(100,180,255,0.4)');
+    });
+  }
+
+  // Snow
+  if(isSnowing()){
+    const target=condition==='snow-grains'?12:25;
+    while(px_flakes.length<target) px_flakes.push(px_spawnFlake(false,W,HYP));
+    px_flakes.forEach(s=>{
+      s.wobble+=s.wobbleSpd;
+      s.x+=s.vx+Math.sin(s.wobble)*.4;
+      s.y+=s.vy;
+    });
+    px_flakes=px_flakes.filter(s=>s.y<HYP+1);
+    px_flakes.forEach(s=>{
+      if(s.x<0||s.x>=W||s.y<0||s.y>=H) return;
+      dot(s.x|0, s.y|0, '#e8f4ff');
+    });
+  }
+
+  // Lightning flash + bolts
+  if(isStorm()){
+    lightningFlash=Math.max(0,lightningFlash-.04);
+    if(frame>=nextLightFrame){
+      nextLightFrame=frame+Math.floor(Math.random()*130+50);
+      lightningFlash=1;
+      // Build bolt in pixel coords directly
+      lightningBolts.push({segs:buildBolt(Math.random()*W,0,HYP),life:1});
+    }
+    lightningBolts.forEach(b=>b.life-=.07);
+    lightningBolts=lightningBolts.filter(b=>b.life>0);
+    if(lightningFlash>.1){
+      ctx.fillStyle=\`rgba(200,225,255,\${lightningFlash*.3})\`;
+      ctx.fillRect(0,0,W,H);
+    }
+    lightningBolts.forEach(b=>{
+      ctx.globalAlpha=b.life;
+      b.segs.forEach(s=>bline(s.x1,s.y1,s.x2,s.y2,'#c8dcff'));
       ctx.globalAlpha=1;
+    });
+  }
+
+  // Fireflies
+  if(!isDay && temperature>15){
+    px_fireflies.forEach(f=>{
+      f.x+=f.vx; f.y+=f.vy;
+      f.alpha+=f.aSpd*f.aDir;
+      if(f.alpha>=1||f.alpha<=0) f.aDir*=-1;
+      if(f.x<0||f.x>=W) f.vx*=-1;
+      if(f.y<HYP*.4||f.y>HYP) f.vy*=-1;
+      if(f.alpha>.4 && f.x>=0&&f.x<W&&f.y>=0&&f.y<H){
+        ctx.globalAlpha=f.alpha;
+        dot(f.x|0,f.y|0,'#ccff33');
+        ctx.globalAlpha=1;
+      }
+    });
+  }
+
+  // Chimney smoke
+  if(!isRaining()&&!isStorm()){
+    if(Math.random()<.06){
+      const chimneyX=hx+6+1, chimneyY=hby-houseH-8;
+      px_smoke.push({x:chimneyX,y:chimneyY,vx:(Math.random()-.5)*.3,vy:-.4*SPD(),alpha:.7,life:1});
+    }
+    px_smoke.forEach(s=>{ s.x+=s.vx; s.y+=s.vy; s.alpha-=.015; s.life-=.015; });
+    px_smoke=px_smoke.filter(s=>s.life>0&&s.alpha>0);
+    px_smoke.forEach(s=>{
+      if(s.x<0||s.x>=W||s.y<0||s.y>=H) return;
+      ctx.globalAlpha=s.alpha*.6;
+      dot(s.x|0,s.y|0,isDay?'#90a4ae':'#546e7a');
+      ctx.globalAlpha=1;
+    });
+  }
+
+  // Leaves
+  if(CFG.showLeaves && !isRaining() && !isSnowing()){
+    const target=8;
+    while(px_leaves.length<target) px_leaves.push(px_spawnLeaf(false,W,HYP));
+    px_leaves.forEach(l=>{
+      l.wobble+=.04;
+      l.x+=l.vx+Math.sin(l.wobble)*.3;
+      l.y+=l.vy;
+    });
+    px_leaves=px_leaves.filter(l=>l.y<HYP+1&&l.x>-1&&l.x<W+1);
+    px_leaves.forEach(l=>{
+      if(l.x<0||l.x>=W||l.y<0||l.y>=H) return;
+      dot(l.x|0,l.y|0,l.color);
     });
   }
 
   // Fog overlay
   if(condition==='fog'){
-    ctx.fillStyle='rgba(176,190,197,0.4)';
+    ctx.fillStyle='rgba(176,190,197,0.38)';
     ctx.fillRect(0,0,W,H);
   }
 
@@ -1102,14 +1255,14 @@ async function fetchWeather(){
   temperature=c.temperature_2m; precipitation=c.precipitation;
   windSpeed=c.wind_speed_10m; windDirection=c.wind_direction_10m;
   isDay=c.is_day===1; condition=WMO[c.weather_code]??'cloudy';
-  initScene(); hideLoad(); updateHUD();
+  initScene(); if(CFG.pixelMode) px_initParticles(); hideLoad(); updateHUD();
 }
 
 function applySimulate(cond,night){
   condition=cond??condition; isDay=!night;
   temperature=20; precipitation=isRaining()?2.5:0;
   windSpeed=isStorm()?45:10; windDirection=225;
-  weatherData={sim:true}; initScene(); hideLoad(); updateHUD();
+  weatherData={sim:true}; initScene(); if(CFG.pixelMode) px_initParticles(); hideLoad(); updateHUD();
 }
 
 function offlineWeather(){
@@ -1118,7 +1271,7 @@ function offlineWeather(){
   condition=['clear','partly-cloudy','cloudy','rain'][Math.floor(Math.random()*4)];
   temperature=14+Math.random()*11; precipitation=isRaining()?2:0;
   windSpeed=7+Math.random()*8; windDirection=Math.random()*360;
-  weatherData={offline:true}; initScene(); hideLoad(); updateHUD();
+  weatherData={offline:true}; initScene(); if(CFG.pixelMode) px_initParticles(); hideLoad(); updateHUD();
 }
 
 function hideLoad(){ load.classList.add('gone'); }
@@ -1139,15 +1292,19 @@ function loop(){
     _lastPixelMode = CFG.pixelMode;
     resize();
     _lastW = canvas.width; _lastH = canvas.height;
-    if(weatherData) initScene();
+    if(weatherData){
+      initScene();
+      if(CFG.pixelMode) px_initParticles();
+    }
   }
 
   if(CFG.pixelMode){
-    // Pixel mode: fixed tiny canvas, no resize tracking needed
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    // Still update physics via the normal updaters (they read canvas.width/height
-    // which is PIXEL_W x PIXEL_H, so all coords stay in pixel space naturally)
-    updatePhysics();
+    // Stars still need twinkle update (shared array, pixel coords already correct)
+    if(!isDay) stars.forEach(s=>{
+      s.a+=s.spd*(s.a>.9?-1:s.a<.15?1:(Math.random()>.5?1:-1));
+      s.a=Math.max(.1,Math.min(1,s.a));
+    });
     renderPixelMode();
   } else {
     if(cw !== _lastW || ch !== _lastH){
