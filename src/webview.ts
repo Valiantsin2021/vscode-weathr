@@ -570,8 +570,8 @@ function drawGround(){
 // ============================================================
 function drawHouse(){
   const hy=HY();
-  const cx=canvas.width/2-55, by=hy;
-  const houseW=110, houseH=72;
+  const cx=canvas.width/2-55*0.7, by=hy;
+  const houseW=110*0.7, houseH=72*0.7;
   const roofC=isDay?'#b71c1c':isStorm()?'#4a148c':'#6a0dad';
   const wallC =isDay?'rgba(215,185,145,1)':'rgba(95,65,45,1)';
   const winC  =isDay?'#80deea':isStorm()?'#ffd54f':'#fff176';
@@ -1258,14 +1258,15 @@ function px_trees(hy){
 
 // House
 function px_house(W,hy){
-  const hw=24, hh=12, hx=Math.floor(W/2-hw/2), wy=hy-hh;
+  const scale=1.4;
+  const hw=24*scale, hh=12*scale, hx=Math.floor(W/2-hw/2), wy=hy-hh;
   const roofC=isDay?'#b71c1c':isStorm()?'#4a148c':'#6a0dad';
   const wallC=isDay?'#d7b991':'#5f412d';
   const winC =isDay?'#80deea':isStorm()?'#ffd54f':'#fff176';
 
   // Chimney
   ctx.fillStyle='#4e342e';
-  ctx.fillRect(hx+6,wy-12,3,7);
+  ctx.fillRect(hx+6*scale,wy-12*scale,3*scale,7*scale);
 
 
   // Walls
@@ -1275,45 +1276,45 @@ function px_house(W,hy){
   // Roof trapezoid
   ctx.fillStyle=roofC;
   for(let r=0;r<7;r++){
-    const rw=Math.floor(hw+9-(6-r)*2.4);
-    ctx.fillRect(hx+Math.floor(hw/2)-Math.floor(rw/2),wy-5+r,rw,1);
+    const rw=Math.floor((hw+9)-(6-r)*2.4*scale);
+    ctx.fillRect(hx+Math.floor(hw/2)-Math.floor(rw/2),wy-5*scale+r,rw,1);
   }
 
   // Windows
   if(!isDay||isStorm()){
     ctx.globalAlpha=.25; ctx.fillStyle=winC;
-    ctx.fillRect(hx+4,wy+2,5,5); ctx.fillRect(hx+11,wy+2,5,5);
-    ctx.fillRect(hx+hw-16,wy+2,5,5); ctx.fillRect(hx+hw-9,wy+2,5,5);
+    ctx.fillRect(hx+4*scale,wy+2*scale,5*scale,5*scale); ctx.fillRect(hx+11*scale,wy+2*scale,5*scale,5*scale);
+    ctx.fillRect(hx+hw-16*scale,wy+2*scale,5*scale,5*scale); ctx.fillRect(hx+hw-9*scale,wy+2*scale,5*scale,5*scale);
     ctx.globalAlpha=1;
   }
 
   ctx.fillStyle=winC;
-  ctx.fillRect(hx+5,wy+3,3,3);
-  ctx.fillRect(hx+12,wy+3,3,3);
-  ctx.fillRect(hx+hw-15,wy+3,3,3);
-  ctx.fillRect(hx+hw-8,wy+3,3,3);
+  ctx.fillRect(hx+5*scale,wy+3*scale,3*scale,3*scale);
+  ctx.fillRect(hx+12*scale,wy+3*scale,3*scale,3*scale);
+  ctx.fillRect(hx+hw-15*scale,wy+3*scale,3*scale,3*scale);
+  ctx.fillRect(hx+hw-8*scale,wy+3*scale,3*scale,3*scale);
 
   // Door
-  const dx=hx+Math.floor(hw/2)-2;
-  ctx.fillStyle='#5d4037'; ctx.fillRect(dx,wy+hh-6,4,6);
-  ctx.fillStyle='#ffd54f'; ctx.fillRect(dx+3,wy+hh-4,1,1); // knob
+  const dx=hx+Math.floor(hw/2)-2*scale;
+  ctx.fillStyle='#5d4037'; ctx.fillRect(dx,wy+hh-6*scale,4*scale,6*scale);
+  ctx.fillStyle='#ffd54f'; ctx.fillRect(dx+3*scale,wy+hh-4*scale,1,1); // knob
 
   // Path
   ctx.fillStyle=isDay?'#9e9e9e':'#616161';
-  ctx.fillRect(dx-1,hy,6,3);
+  ctx.fillRect(dx-1,hy,6*scale,3*scale);
 
   // Fences
   ctx.fillStyle=isDay?'#e6c96a':'#8d6e63';
-  for(let i=0;i<7;i++) ctx.fillRect(hx-21+i*3,hy-4,1,4);
-  ctx.fillRect(hx-21,hy-3,21,1);
-  for(let i=0;i<7;i++) ctx.fillRect(hx+hw+3+i*3,hy-4,1,4);
-  ctx.fillRect(hx+hw+2,hy-3,21,1);
+  for(let i=0;i<7;i++) ctx.fillRect(hx-21*scale+i*3*scale,hy-4*scale,1,4*scale);
+  ctx.fillRect(hx-21*scale,hy-3*scale,21*scale,1);
+  for(let i=0;i<7;i++) ctx.fillRect(hx+hw+3*scale+i*3*scale,hy-4*scale,1,4*scale);
+  ctx.fillRect(hx+hw+2*scale,hy-3*scale,21*scale,1);
 
-  const mbx=hx-24;
+  const mbx=hx-24*scale;
   if(mbx>0){
     ctx.fillStyle=isDay?'#1565c0':'#0d47a1';
-    ctx.fillRect(mbx,hy-4,3,2);
-    ctx.fillRect(mbx+1,hy-2,1,2);
+    ctx.fillRect(mbx,hy-4*scale,3*scale,2*scale);
+    ctx.fillRect(mbx+1,hy-2*scale,1,2*scale);
   }
 }
 

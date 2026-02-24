@@ -2,7 +2,7 @@
   "name": "vscode-weathr",
   "displayName": "Weathr - Weather Animations",
   "description": "Live weather animations in your VS Code sidebar, powered by real-time weather data from Open-Meteo.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "valentin-l",
   "icon": "media/icon.png",
   "engines": {
@@ -245,9 +245,9 @@
     "package": "npx vsce package"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "@types/vscode": "^1.85.0",
-    "typescript": "^5.3.0"
+    "@types/node": "^25.3.0",
+    "@types/vscode": "^1.109.0",
+    "typescript": "^5.9.3"
   },
   "repository": {
     "type": "git",
