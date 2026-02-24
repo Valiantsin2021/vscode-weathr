@@ -58,9 +58,12 @@ const load   = document.getElementById('load');
 function resize(){
   if(CFG.pixelMode){
     // In pixel mode, the canvas BUFFER is tiny; CSS stretches it up.
-    // We only set this once (or when the mode changes), not every frame,
-    // because changing canvas dimensions clears it and is expensive.
-    canvas.width  = PIXEL_W;
+    // Compute buffer width from the viewport aspect ratio so the image
+    // is never squished/stretched when the window shape changes.
+    const cssW = canvas.offsetWidth  || canvas.clientWidth  || 400;
+    const cssH = canvas.offsetHeight || canvas.clientHeight || 300;
+    const aspect = cssW / cssH;
+    canvas.width  = Math.max(80, Math.round(PIXEL_H * aspect));
     canvas.height = PIXEL_H;
     canvas.classList.add('pixel-mode');
   } else {
@@ -70,7 +73,13 @@ function resize(){
   }
 }
 resize();
-window.addEventListener('resize', ()=>{ if(!CFG.pixelMode){ resize(); initScene(); } });
+window.addEventListener('resize', ()=>{
+  resize();
+  if(weatherData){
+    initScene();
+    if(CFG.pixelMode) px_initParticles();
+  }
+});
 
 // --- WEATHER STATE ---
 let weatherData=null, isOffline=false, isDay=true, condition='clear';
@@ -574,7 +583,7 @@ function drawHouse(){
   ctx.fillStyle=roofC;
   ctx.shadowColor='rgba(0,0,0,.25)'; ctx.shadowBlur=6;
   ctx.beginPath();
-  ctx.moveTo(cx-14,by-houseH+8); ctx.lineTo(cx+houseW+14,by-houseH+8);
+  ctx.moveTo(cx-14,by-houseH); ctx.lineTo(cx+houseW+14,by-houseH);
   ctx.lineTo(cx+houseW*.72,by-houseH-32); ctx.lineTo(cx+houseW*.28,by-houseH-32);
   ctx.closePath(); ctx.fill();
   ctx.shadowBlur=0;
@@ -857,375 +866,6 @@ const fmtT=v=>CFG.temperatureUnit==='fahrenheit'?(v*9/5+32).toFixed(1)+'°F':v.t
 const fmtW=v=>{ let r=v,u='km/h'; if(CFG.windSpeedUnit==='ms'){r=v/3.6;u='m/s';}else if(CFG.windSpeedUnit==='mph'){r=v*.621;u='mph';}else if(CFG.windSpeedUnit==='kn'){r=v*.54;u='kn';} return r.toFixed(1)+' '+u; };
 const fmtP=v=>CFG.precipitationUnit==='inch'?(v/25.4).toFixed(2)+'"':v.toFixed(1)+'mm';
 
-// ============================================================
-//  PIXEL MODE RENDERER
-//  Draws a retro low-res scene using fillRect "pixels".
-//  All coordinates are in PIXEL_W x PIXEL_H logical space.
-// ============================================================
-
-// Pixel-mode private particle pools (separate from smooth-mode pools)
-let px_clouds=[], px_drops=[], px_flakes=[], px_leaves=[];
-let px_smoke=[], px_fireflies=[];
-
-function px_initParticles(){
-  px_clouds=[]; px_drops=[]; px_flakes=[];
-  px_leaves=[]; px_smoke=[]; px_fireflies=[];
-
-  const W=PIXEL_W, H=PIXEL_H, HYP=Math.round(H*0.73);
-
-  // Clouds — capped at pixel-space sizes (w: 10–22px, h: 3–5px)
-  const nc=condition==='clear'?2:condition==='partly-cloudy'?3:condition==='overcast'?6:4;
-  for(let i=0;i<nc;i++){
-    px_clouds.push({
-      x: Math.random()*W,
-      y: Math.random()*HYP*.28+3,
-      w: Math.random()*12+10,   // 10–22 px wide
-      h: Math.random()*2+3,     // 3–5 px tall
-      spd:(Math.random()*.15+.04)*SPD()
-    });
-  }
-
-  // Rain drops
-  if(isRaining()){
-    const n=condition==='drizzle'?15:isStorm()?40:25;
-    for(let i=0;i<n;i++) px_drops.push(px_spawnDrop(true, W, H, HYP));
-  }
-
-  // Snow flakes
-  if(isSnowing()){
-    const n=condition==='snow-grains'?12:25;
-    for(let i=0;i<n;i++) px_flakes.push(px_spawnFlake(true, W, HYP));
-  }
-
-  // Fireflies
-  if(!isDay && temperature>15 && (condition==='clear'||condition==='partly-cloudy')){
-    for(let i=0;i<8;i++) px_fireflies.push({
-      x:Math.random()*W, y:HYP*.4+Math.random()*HYP*.55,
-      vx:(Math.random()-.5)*.3, vy:(Math.random()-.5)*.2,
-      alpha:Math.random(), aDir:Math.random()>.5?1:-1, aSpd:.03
-    });
-  }
-
-  // Leaves
-  if(CFG.showLeaves && !isRaining() && !isSnowing()){
-    for(let i=0;i<8;i++) px_leaves.push(px_spawnLeaf(true, W, HYP));
-  }
-}
-
-function px_spawnDrop(init, W, H, HYP){
-  const drift=((windDirection%360)<180?1:-1)*(windSpeed/200)*(Math.random()*.5+.2);
-  return {
-    x:Math.random()*W,
-    y:init?Math.random()*HYP:-2,
-    vx:drift, vy:(Math.random()*1.2+1)*SPD(),
-    isHail:condition==='thunderstorm-hail'||condition==='freezing-rain'
-  };
-}
-function px_spawnFlake(init, W, HYP){
-  return {
-    x:Math.random()*W, y:init?Math.random()*HYP:-1,
-    vy:(.4+Math.random()*.5)*SPD(), vx:(Math.random()-.5)*.3,
-    wobble:Math.random()*Math.PI*2, wobbleSpd:Math.random()*.08+.02
-  };
-}
-function px_spawnLeaf(init, W, HYP){
-  return {
-    x:Math.random()*W, y:init?Math.random()*HYP:-1,
-    vy:(.5+Math.random()*.7)*SPD(), vx:(Math.random()-.5)*.6,
-    wobble:Math.random()*Math.PI*2,
-    color:['#d32f2f','#e64a19','#f57f17','#bf360c','#ff8f00'][Math.floor(Math.random()*5)]
-  };
-}
-
-function renderPixelMode(){
-  const W=PIXEL_W, H=PIXEL_H;
-  const HYP=Math.round(H*0.73);
-
-  // ── draw helpers ──────────────────────────────────────────
-  function dot(x,y,color){
-    ctx.fillStyle=color;
-    ctx.fillRect(x|0, y|0, 1, 1);
-  }
-  function hline(x,y,len,color){
-    ctx.fillStyle=color;
-    ctx.fillRect(x|0, y|0, len, 1);
-  }
-  function vline(x,y,len,color){
-    ctx.fillStyle=color;
-    ctx.fillRect(x|0, y|0, 1, len);
-  }
-  function rect(x,y,w,h,color){
-    ctx.fillStyle=color;
-    ctx.fillRect(x|0, y|0, w, h);
-  }
-  function bline(x1,y1,x2,y2,color){
-    // Bresenham — both endpoints already in pixel coords
-    let dx=Math.abs(x2-x1), dy=Math.abs(y2-y1);
-    let sx=x1<x2?1:-1, sy=y1<y2?1:-1;
-    let err=dx-dy, lx=x1|0, ly=y1|0;
-    for(let guard=0;guard<200;guard++){
-      if(lx>=0&&lx<W&&ly>=0&&ly<H) dot(lx,ly,color);
-      if(lx===(x2|0)&&ly===(y2|0)) break;
-      const e2=2*err;
-      if(e2>-dy){err-=dy;lx+=sx;}
-      if(e2<dx) {err+=dx;ly+=sy;}
-    }
-  }
-
-  // ── Sky gradient ──────────────────────────────────────────
-  const skyTop=!isDay?'#010210':isStorm()?'#171728':condition==='fog'?'#8a9ba8':condition==='overcast'||condition==='cloudy'?'#455a64':condition==='clear'?'#0d1b6e':'#1a2f8a';
-  const skyBot=!isDay?'#0b0b26':isStorm()?'#263238':condition==='fog'?'#b0bec5':condition==='overcast'||condition==='cloudy'?'#78909c':condition==='clear'?'#40a0f0':'#5db8f5';
-  for(let y=0;y<HYP;y++){
-    const t=y/HYP;
-    const r=(lerp(hexR(skyTop),hexR(skyBot),t))|0;
-    const g2=(lerp(hexG(skyTop),hexG(skyBot),t))|0;
-    const b=(lerp(hexB(skyTop),hexB(skyBot),t))|0;
-    hline(0,y,W,\`rgb(\${r},\${g2},\${b})\`);
-  }
-
-  // ── Ground ────────────────────────────────────────────────
-  const gndC=isSnowing()?(isDay?'#b0cce0':'#7ab0cc'):(isDay?'#2d5a1b':'#1b4011');
-  rect(0,HYP,W,H-HYP,gndC);
-
-  // ── Stars ─────────────────────────────────────────────────
-  if(!isDay){
-    // Reuse the smooth-mode star array — positions are 0..canvas.width/height
-    // but canvas is PIXEL_W×PIXEL_H in pixel mode, so coords are already right.
-    stars.forEach(s=>{
-      if(s.a>.5) dot(s.x|0, s.y|0, '#ffffff');
-    });
-  }
-
-  // ── Moon ──────────────────────────────────────────────────
-  if(!isDay){
-    const mx=(W*.78)|0, my=(H*.11)|0;
-    // 3-pixel radius circle
-    for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
-      if(dx*dx+dy*dy<=9) dot(mx+dx, my+dy, '#fff8e1');
-    }
-    // Shadow bite (crescent)
-    const bite=moonPhase>.5?2:-2;
-    for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++){
-      if(dx*dx+dy*dy<=5) dot(mx+dx+bite, my+dy, '#080820');
-    }
-  }
-
-  // ── Sun ───────────────────────────────────────────────────
-  if(isDay && !isRaining() && !isSnowing() && condition!=='fog' && condition!=='overcast'){
-    const sx=(W*.82)|0, sy=(H*.1)|0;
-    for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
-      if(dx*dx+dy*dy<=9) dot(sx+dx, sy+dy, '#ffeb3b');
-    }
-    // Rays — 8 directions, 2 pixels out from edge
-    [[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]].forEach(([rx,ry])=>{
-      dot(sx+rx*5, sy+ry*5, '#ffe082');
-      dot(sx+rx*6, sy+ry*6, '#ffe08288');
-    });
-  }
-
-  // ── Clouds ────────────────────────────────────────────────
-  // Update
-  px_clouds.forEach(c=>{ c.x+=c.spd; if(c.x>W+25) c.x=-25; });
-  const cc=!isDay?'#23233a':isStorm()||isRaining()?'#546e7a':'#eceff1';
-  // Replenish
-  const maxC=condition==='clear'?2:condition==='partly-cloudy'?3:6;
-  while(px_clouds.length<maxC) px_clouds.push({
-    x:-10, y:Math.random()*HYP*.25+3,
-    w:Math.random()*12+10, h:Math.random()*2+3,
-    spd:(Math.random()*.15+.04)*SPD()
-  });
-  // Draw: each cloud is a 3-bump pixel-art shape
-  px_clouds.forEach(c=>{
-    const cx=c.x|0, cy=c.y|0, cw=c.w|0, ch=c.h|0;
-    // Bottom bar (widest)
-    rect(cx,       cy+1,    cw,        ch,   cc);
-    // Left bump
-    rect(cx+1,     cy,      (cw*.4)|0, ch+1, cc);
-    // Centre bump (tallest)
-    rect(cx+(cw*.3)|0, cy-1, (cw*.45)|0, ch+2, cc);
-    // Right bump
-    rect(cx+(cw*.65)|0, cy,  (cw*.3)|0, ch+1, cc);
-  });
-
-  // ── Trees ─────────────────────────────────────────────────
-  // 8 trees, skip house zone (35%–65% of W)
-  for(let i=0;i<8;i++){
-    const tx=Math.round((i+.5)/8*W);
-    if(tx>W*.33&&tx<W*.67) continue;
-    // Vary height per position deterministically
-    const th=6+((i*7+3)%7);  // 6–12px tall
-    const tc=isDay?'#2d5a1b':'#1a3510';
-    const tcs=isDay?'#3a7a25':'#224518'; // slightly lighter shade
-    // Trunk (1px wide, 2px tall)
-    vline(tx, HYP-2, 2, '#5a3010');
-    // Foliage: triangle widening toward base (row 0 = apex at top)
-    for(let row=0;row<th;row++){
-      // halfW grows from 0 at apex to ~3 at base
-      const halfW=Math.round(row/th*3);
-      const rowColor=(row<th/2)?tcs:tc;
-      hline(tx-halfW, HYP-th-2+row, halfW*2+1, rowColor);
-    }
-  }
-
-  // ── House ─────────────────────────────────────────────────
-  const hx=Math.round(W/2)-12, hby=HYP-1;
-  const houseW=24, houseH=14;
-  const wallC=isDay?'#d7b991':'#5f4128';
-  const roofC=isDay?'#b71c1c':'#6a0dad';
-  const winC=isDay?'#80deea':isStorm()?'#ffd54f':'#fff176';
-
-  // Wall
-  rect(hx, hby-houseH, houseW, houseH, wallC);
-
-  // Chimney (must be drawn before roof so roof overlaps it correctly)
-  rect(hx+6, hby-houseH-8, 3, 8, '#4e342e');
-
-  // Roof — triangle pointing UP: row 0 is the WIDEST (base), last row is apex.
-  // Base sits at hby-houseH, apex is roofH rows above that.
-  const roofH=8;
-  for(let r=0;r<roofH;r++){
-    // r=0 → full width (houseW+2 with 1px overhang each side)
-    // r=roofH-1 → 1px wide (apex)
-    const halfW=Math.round(((roofH-1-r)/(roofH-1))*(houseW/2+1));
-    const rowY=hby-houseH-r;          // moves UP as r increases
-    hline(hx+houseW/2-halfW, rowY, halfW*2+1, roofC);
-  }
-
-  // Windows (2×2)
-  rect(hx+3,         hby-houseH+4, 4, 4, winC);
-  rect(hx+houseW-7,  hby-houseH+4, 4, 4, winC);
-  // Window cross-bars
-  vline(hx+5,        hby-houseH+4, 4, '#00000033');
-  hline(hx+3,        hby-houseH+6, 4, '#00000033');
-  vline(hx+houseW-5, hby-houseH+4, 4, '#00000033');
-  hline(hx+houseW-7, hby-houseH+6, 4, '#00000033');
-
-  // Door
-  rect(hx+houseW/2-2, hby-5, 4, 5, '#5d4037');
-  dot(hx+houseW/2+1, hby-3, '#ffd54f');  // door knob
-
-  // Path
-  rect(hx+houseW/2-2, hby, 4, 2, isDay?'#9e9e9e':'#616161');
-
-  // Fence posts (3px tall, every 3px, left and right of house)
-  const fenceC=isDay?'#c8a84b':'#6d4c41';
-  for(let fi=0;fi<5;fi++){
-    vline(hx-3-fi*3,          hby-3, 3, fenceC);
-    vline(hx+houseW+2+fi*3,   hby-3, 3, fenceC);
-  }
-  // Fence rails
-  hline(hx-3-4*3, hby-2, 4*3+3, fenceC);
-  hline(hx+houseW+2, hby-2, 4*3+3, fenceC);
-
-  // ── Weather particles ─────────────────────────────────────
-
-  // Rain / hail
-  if(isRaining()){
-    const target=condition==='drizzle'?15:isStorm()?40:25;
-    while(px_drops.length<target) px_drops.push(px_spawnDrop(false,W,H,HYP));
-    px_drops.forEach(d=>{ d.x+=d.vx; d.y+=d.vy; });
-    px_drops=px_drops.filter(d=>d.y<HYP+2&&d.x>-2&&d.x<W+2);
-    px_drops.forEach(d=>{
-      if(d.x<0||d.x>=W||d.y<0||d.y>=H) return;
-      dot(d.x|0, d.y|0, d.isHail?'#c8e6ff':'rgba(100,180,255,0.9)');
-      if(!d.isHail && (d.y-1)>=0) dot(d.x|0, (d.y-1)|0, 'rgba(100,180,255,0.4)');
-    });
-  }
-
-  // Snow
-  if(isSnowing()){
-    const target=condition==='snow-grains'?12:25;
-    while(px_flakes.length<target) px_flakes.push(px_spawnFlake(false,W,HYP));
-    px_flakes.forEach(s=>{
-      s.wobble+=s.wobbleSpd;
-      s.x+=s.vx+Math.sin(s.wobble)*.4;
-      s.y+=s.vy;
-    });
-    px_flakes=px_flakes.filter(s=>s.y<HYP+1);
-    px_flakes.forEach(s=>{
-      if(s.x<0||s.x>=W||s.y<0||s.y>=H) return;
-      dot(s.x|0, s.y|0, '#e8f4ff');
-    });
-  }
-
-  // Lightning flash + bolts
-  if(isStorm()){
-    lightningFlash=Math.max(0,lightningFlash-.04);
-    if(frame>=nextLightFrame){
-      nextLightFrame=frame+Math.floor(Math.random()*130+50);
-      lightningFlash=1;
-      // Build bolt in pixel coords directly
-      lightningBolts.push({segs:buildBolt(Math.random()*W,0,HYP),life:1});
-    }
-    lightningBolts.forEach(b=>b.life-=.07);
-    lightningBolts=lightningBolts.filter(b=>b.life>0);
-    if(lightningFlash>.1){
-      ctx.fillStyle=\`rgba(200,225,255,\${lightningFlash*.3})\`;
-      ctx.fillRect(0,0,W,H);
-    }
-    lightningBolts.forEach(b=>{
-      ctx.globalAlpha=b.life;
-      b.segs.forEach(s=>bline(s.x1,s.y1,s.x2,s.y2,'#c8dcff'));
-      ctx.globalAlpha=1;
-    });
-  }
-
-  // Fireflies
-  if(!isDay && temperature>15){
-    px_fireflies.forEach(f=>{
-      f.x+=f.vx; f.y+=f.vy;
-      f.alpha+=f.aSpd*f.aDir;
-      if(f.alpha>=1||f.alpha<=0) f.aDir*=-1;
-      if(f.x<0||f.x>=W) f.vx*=-1;
-      if(f.y<HYP*.4||f.y>HYP) f.vy*=-1;
-      if(f.alpha>.4 && f.x>=0&&f.x<W&&f.y>=0&&f.y<H){
-        ctx.globalAlpha=f.alpha;
-        dot(f.x|0,f.y|0,'#ccff33');
-        ctx.globalAlpha=1;
-      }
-    });
-  }
-
-  // Chimney smoke
-  if(!isRaining()&&!isStorm()){
-    if(Math.random()<.06){
-      const chimneyX=hx+6+1, chimneyY=hby-houseH-8;
-      px_smoke.push({x:chimneyX,y:chimneyY,vx:(Math.random()-.5)*.3,vy:-.4*SPD(),alpha:.7,life:1});
-    }
-    px_smoke.forEach(s=>{ s.x+=s.vx; s.y+=s.vy; s.alpha-=.015; s.life-=.015; });
-    px_smoke=px_smoke.filter(s=>s.life>0&&s.alpha>0);
-    px_smoke.forEach(s=>{
-      if(s.x<0||s.x>=W||s.y<0||s.y>=H) return;
-      ctx.globalAlpha=s.alpha*.6;
-      dot(s.x|0,s.y|0,isDay?'#90a4ae':'#546e7a');
-      ctx.globalAlpha=1;
-    });
-  }
-
-  // Leaves
-  if(CFG.showLeaves && !isRaining() && !isSnowing()){
-    const target=8;
-    while(px_leaves.length<target) px_leaves.push(px_spawnLeaf(false,W,HYP));
-    px_leaves.forEach(l=>{
-      l.wobble+=.04;
-      l.x+=l.vx+Math.sin(l.wobble)*.3;
-      l.y+=l.vy;
-    });
-    px_leaves=px_leaves.filter(l=>l.y<HYP+1&&l.x>-1&&l.x<W+1);
-    px_leaves.forEach(l=>{
-      if(l.x<0||l.x>=W||l.y<0||l.y>=H) return;
-      dot(l.x|0,l.y|0,l.color);
-    });
-  }
-
-  // Fog overlay
-  if(condition==='fog'){
-    ctx.fillStyle='rgba(176,190,197,0.38)';
-    ctx.fillRect(0,0,W,H);
-  }
-
-  updateHUD();
-}
 
 // ============================================================
 //  HEX COLOUR HELPERS (for pixel mode sky gradient)
@@ -1234,6 +874,556 @@ function hexR(h){ return parseInt(h.slice(1,3),16); }
 function hexG(h){ return parseInt(h.slice(3,5),16); }
 function hexB(h){ return parseInt(h.slice(5,7),16); }
 function lerp(a,b,t){ return a+(b-a)*t; }
+
+// ============================================================
+//  PIXEL MODE – Particle Init (mirrors Rust system initialization)
+// ============================================================
+function px_initParticles(){
+  // Re-populate particle arrays for pixel-mode coordinate space (300×100).
+  // initScene() already ran with pixel canvas dims, but counts & sizes need
+  // tuning for the low-res grid. Structure mirrors Rust AnimationManager::new.
+  const W=canvas.width, H=canvas.height, hy=Math.floor(HY());
+
+  // Stars – Rust StarSystem: density = W*H/80, single chars (*, +, .)
+  stars=[];
+  if(!isDay){
+    const count=Math.floor(W*hy/120);
+    for(let i=0;i<count;i++) stars.push({
+      x:Math.floor(Math.random()*W),
+      y:Math.floor(Math.random()*hy*.85),
+      r:1, a:Math.random(), spd:Math.random()*.04+.01
+    });
+  }
+
+  // Clouds – Rust CloudSystem: max(1, W/20) initial, ASCII blob shapes
+  clouds=[];
+  const nc=condition==='clear'?1:condition==='partly-cloudy'?3:condition==='overcast'?6:4;
+  for(let i=0;i<nc;i++) clouds.push({
+    x:Math.floor(Math.random()*W),
+    y:Math.floor(Math.random()*hy*.25)+3,
+    w:Math.floor(Math.random()*16+10),
+    h:Math.floor(Math.random()*4+3),
+    spd:(Math.random()*.12+.03)*SPD(),
+    alpha:1
+  });
+
+  // Rain – Rust RaindropSystem: counts based on terminal_width & intensity
+  raindrops=[];
+  if(isRaining()){
+    const n=condition==='drizzle'?Math.floor(W/15):isStorm()?Math.floor(W/5):Math.floor(W/8);
+    for(let i=0;i<n;i++) raindrops.push({
+      x:Math.random()*W,
+      y:Math.random()*hy,
+      vx:((windDirection%360)<180?1:-1)*(windSpeed/80),
+      vy:(Math.random()*1.5+1)*SPD(),
+      len:1, alpha:1,
+      isHail:condition==='thunderstorm-hail'||condition==='freezing-rain'
+    });
+  }
+
+  // Snow – Rust SnowSystem: W/4 (light) to W (heavy)
+  snowflakes=[];
+  if(isSnowing()){
+    const n=condition==='snow-grains'?Math.floor(W/15):Math.floor(W/8);
+    for(let i=0;i<n;i++) snowflakes.push({
+      x:Math.random()*W, y:Math.random()*hy,
+      r:1, vy:(Math.random()*.4+.15)*SPD(),
+      vx:(Math.random()-.5)*.25,
+      wobble:Math.random()*Math.PI*2,
+      wobbleSpd:Math.random()*.04+.01,
+      wobbleAmp:Math.random()*.6+.2,
+      angle:0, spin:0
+    });
+  }
+
+  // Fog – Rust FogSystem: wisps with characters ., ,, -, ~
+  fogParticles=[];
+  if(condition==='fog'){
+    for(let i=0;i<15;i++) fogParticles.push({
+      x:Math.random()*W,
+      y:hy-Math.floor(Math.random()*15),
+      w:Math.random()*20+8, h:Math.random()*4+2,
+      spd:(Math.random()*.15+.03)*SPD(), alpha:.35
+    });
+  }
+
+  // Birds – Rust BirdSystem: capacity 3, chars v/-
+  birds=[];
+  if(isDay&&!isRaining()&&!isSnowing()&&condition!=='fog'){
+    for(let i=0;i<3;i++) birds.push({
+      x:Math.random()*W,
+      y:Math.floor(Math.random()*hy*.35+6),
+      spd:(Math.random()*.4+.25)*SPD(),
+      wing:Math.random()*Math.PI,
+      wingSpd:(Math.random()*.08+.05)*SPD()*2,
+      size:1
+    });
+  }
+
+  // Fireflies – Rust FireflySystem: max(3, W/15), glow chars *, ., ·
+  fireflies=[];
+  if(!isDay&&temperature>15&&(condition==='clear'||condition==='partly-cloudy')){
+    const fc=Math.max(3,Math.floor(W/40));
+    for(let i=0;i<fc;i++) fireflies.push({
+      x:Math.random()*W,
+      y:hy*.55+Math.random()*hy*.35,
+      vx:(Math.random()-.5)*.25,
+      vy:(Math.random()-.5)*.15,
+      alpha:Math.random(),
+      aDir:Math.random()>.5?1:-1,
+      aSpd:Math.random()*.03+.008,
+      r:1
+    });
+  }
+
+  // Leaves – Rust FallingLeaves: max(5, W/10), chars *, +, ,, ., ~
+  leaves=[];
+  if(CFG.showLeaves&&!isRaining()&&!isSnowing()){
+    const lc=Math.max(5,Math.floor(W/40));
+    for(let i=0;i<lc;i++) leaves.push({
+      x:Math.random()*W, y:Math.random()*hy,
+      vy:(Math.random()*.12+.06)*SPD(),
+      vx:(Math.random()-.5)*.15,
+      angle:0, spin:0,
+      wobble:Math.random()*Math.PI*2,
+      wobbleAmp:.2, size:1,
+      color:['#d32f2f','#e64a19','#f57f17','#bf360c','#ff8f00'][Math.floor(Math.random()*5)]
+    });
+  }
+
+  // Planes – Rust AirplaneSystem: capacity 2
+  planes=[];
+  if(isDay&&(condition==='clear'||condition==='partly-cloudy')){
+    planes.push({x:-10,y:Math.floor(H*.06+2),spd:(Math.random()*.3+.4)*SPD(),trail:[]});
+  }
+
+  // Smoke, lightning
+  smoke=[]; lightningBolts=[]; lightningFlash=0;
+
+  // Trees – pixel-proportioned (mirrors Rust Decorations: tree, fence, mailbox, pine)
+  treeLayout=[];
+  const farCount=Math.max(3,Math.floor(W/70));
+  for(let i=0;i<farCount;i++){
+    treeLayout.push({
+      layer:0,
+      x:(i+Math.random()*.6)*W/farCount+Math.random()*4-2,
+      baseY:hy-1,
+      h:Math.random()*7+5, w:Math.random()*4+3,
+      species:TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
+      alpha:Math.random()*.2+.15
+    });
+  }
+  const midCount=Math.max(4,Math.floor(W/55));
+  for(let i=0;i<midCount;i++){
+    const lb=W*.33, rs=W*.67;
+    const x=Math.random()<.5?Math.random()*lb:rs+Math.random()*(W-rs);
+    treeLayout.push({
+      layer:1, x, baseY:hy-1,
+      h:Math.random()*10+6, w:Math.random()*6+3,
+      species:TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
+      alpha:Math.random()*.2+.55
+    });
+  }
+  const nearX=[
+    ...Array.from({length:2},(_,i)=>W*.03+i*W*.12+Math.random()*4),
+    ...Array.from({length:2},(_,i)=>W*.74+i*W*.1+Math.random()*4)
+  ];
+  nearX.forEach(x=>{
+    treeLayout.push({
+      layer:2, x, baseY:hy,
+      h:Math.random()*12+9, w:Math.random()*7+5,
+      species:TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
+      alpha:1
+    });
+  });
+  treeLayout.sort((a,b)=>a.layer-b.layer);
+}
+
+// ============================================================
+//  PIXEL MODE – Render (mirrors Rust render pipeline order)
+// ============================================================
+function renderPixelMode(){
+  updatePhysics();
+  const W=canvas.width, H=canvas.height, hy=Math.floor(HY());
+
+  // --- Background (Rust AnimationManager::render_background) ---
+  px_sky(W,H);
+  if(!isDay){ px_stars(); px_moon(W); }
+  if(isDay&&!isRaining()&&!isSnowing()&&condition!=='fog'&&condition!=='overcast') px_sun(W);
+  px_clouds();
+  if(isDay&&!isRaining()&&!isSnowing()&&condition!=='fog') px_birds();
+  if(isDay&&(condition==='clear'||condition==='partly-cloudy')) px_planes();
+  if(!isDay&&temperature>15) px_fireflies();
+
+  // --- Scene (Rust WorldScene::render) ---
+  px_ground(W,H,hy);
+  px_trees(hy);
+  px_house(W,hy);
+
+  // --- Chimney smoke (Rust AnimationManager::render_chimney_smoke) ---
+  if(!isRaining()&&!isStorm()) px_smoke();
+
+  // --- Foreground (Rust AnimationManager::render_foreground) ---
+  if(isStorm()){ px_rain(); px_lightning(W,H); }
+  else if(isRaining()) px_rain();
+  else if(isSnowing()) px_snow();
+  if(condition==='fog') px_fog(W);
+  if(CFG.showLeaves&&!isRaining()&&!isSnowing()) px_leaves();
+
+  updateHUD();
+}
+
+// ----- Pixel-mode draw helpers (each mirrors its Rust counterpart) -----
+
+// Sky gradient – banded rows (Rust: terminal background, smooth mode: drawSky)
+function px_sky(W,H){
+  let t0,t1;
+  if(!isDay)                                      { t0='#010210'; t1='#0b0b26'; }
+  else if(isStorm())                              { t0='#171728'; t1='#263238'; }
+  else if(condition==='fog')                      { t0='#8a9ba8'; t1='#b0bec5'; }
+  else if(condition==='overcast'||condition==='cloudy'){ t0='#455a64'; t1='#78909c'; }
+  else if(condition==='clear')                    { t0='#0d1b6e'; t1='#40a0f0'; }
+  else if(condition==='partly-cloudy')            { t0='#1a2f8a'; t1='#5db8f5'; }
+  else                                            { t0='#1e2a45'; t1='#37474f'; }
+  const r0=hexR(t0),g0=hexG(t0),b0=hexB(t0);
+  const r1=hexR(t1),g1=hexG(t1),b1=hexB(t1);
+  for(let y=0;y<H;y++){
+    const t=y/H;
+    ctx.fillStyle='rgb('+(lerp(r0,r1,t)|0)+','+(lerp(g0,g1,t)|0)+','+(lerp(b0,b1,t)|0)+')';
+    ctx.fillRect(0,y,W,1);
+  }
+}
+
+// Stars – Rust StarSystem: twinkle brightness mapped to pixel opacity
+function px_stars(){
+  stars.forEach(s=>{
+    ctx.globalAlpha=s.a;
+    ctx.fillStyle=s.a>.6?'#ffffff':'#888888';
+    ctx.fillRect(Math.floor(s.x),Math.floor(s.y),1,1);
+  });
+  ctx.globalAlpha=1;
+}
+
+// Moon – Rust MoonSystem: circle with phase shadow
+function px_moon(W){
+  const mx=Math.floor(W*.78), my=Math.floor(canvas.height*.12), R=3;
+  // Moon body
+  ctx.fillStyle='#fff8e1';
+  for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
+    if(dx*dx+dy*dy<=R*R) ctx.fillRect(mx+dx,my+dy,1,1);
+  }
+  // Phase shadow (Rust: step-based phase art, simplified to shadow circle)
+  const sx=Math.floor(R*.45*(moonPhase>.5?1:-1));
+  const sR=Math.floor(R*.75);
+  ctx.fillStyle='#080820';
+  for(let dy=-sR;dy<=sR;dy++) for(let dx=-sR;dx<=sR;dx++){
+    if(dx*dx+dy*dy<=sR*sR) ctx.fillRect(mx+sx+dx,my+dy,1,1);
+  }
+}
+
+// Sun – Rust SunnyAnimation: 2-frame ray toggle
+function px_sun(W){
+  const sx=Math.floor(W*.82), sy=Math.floor(canvas.height*.1), R=3;
+  // Body
+  ctx.fillStyle='#ffeb3b';
+  for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
+    if(dx*dx+dy*dy<=R*R) ctx.fillRect(sx+dx,sy+dy,1,1);
+  }
+  // Rays – alternating length (mirrors Rust SunnyAnimation 2-frame cycle)
+  const p=Math.floor(frame/15)%2;
+  ctx.fillStyle='rgba(255,235,59,.7)';
+  const rl=R+1+p;
+  // Cardinal rays
+  for(let i=R+1;i<=rl;i++){
+    ctx.fillRect(sx+i,sy,1,1); ctx.fillRect(sx-i,sy,1,1);
+    ctx.fillRect(sx,sy+i,1,1); ctx.fillRect(sx,sy-i,1,1);
+  }
+  // Diagonal rays
+  for(let i=1;i<=rl-R;i++){
+    const d=R+i;
+    const diag=Math.round(d*.71);
+    ctx.fillRect(sx+diag,sy-diag,1,1); ctx.fillRect(sx-diag,sy-diag,1,1);
+    ctx.fillRect(sx+diag,sy+diag,1,1); ctx.fillRect(sx-diag,sy+diag,1,1);
+  }
+}
+
+// Clouds – Rust CloudSystem: multi-arc blob shapes
+function px_clouds(){
+  clouds.forEach(c=>{
+    ctx.fillStyle=!isDay?'#23233a':isStorm()||isRaining()?'#546e7a':'#eceff1';
+    const cx_=Math.floor(c.x), cy_=Math.floor(c.y);
+    const hw=Math.min(Math.floor(c.w/2),10);
+    const hh=Math.min(Math.floor(c.h/2),3);
+    if(hw<1||hh<1) return;
+    // Main body ellipse
+    for(let dy=-hh;dy<=hh;dy++) for(let dx=-hw;dx<=hw;dx++){
+      if((dx*dx)/(hw*hw)+(dy*dy)/(hh*hh)<=1) ctx.fillRect(cx_+dx,cy_+dy,1,1);
+    }
+    // Upper bump (Rust clouds use multiple arcs)
+    const bw=Math.max(1,Math.floor(hw*.6));
+    const bh=Math.max(1,hh-1);
+    if(bh>0) for(let dy=-bh;dy<=bh;dy++) for(let dx=-bw;dx<=bw;dx++){
+      if((dx*dx)/(bw*bw)+(dy*dy)/(bh*bh)<=1)
+        ctx.fillRect(cx_+Math.floor(hw*.4)+dx,cy_-hh+dy,1,1);
+    }
+  });
+}
+
+// Birds – Rust BirdSystem: v (wings up) / - (flat), single char
+function px_birds(){
+  birds.forEach(b=>{
+    const bx=Math.floor(b.x), by=Math.floor(b.y);
+    if(bx<0||by<0||bx>=canvas.width||by>=canvas.height) return;
+    const up=Math.sin(b.wing)>0;
+    ctx.fillStyle='#37474f';
+    ctx.fillRect(bx,by,1,1);
+    if(up){ ctx.fillRect(bx-1,by-1,1,1); ctx.fillRect(bx+1,by-1,1,1); }
+    else  { ctx.fillRect(bx-1,by,1,1);   ctx.fillRect(bx+1,by,1,1); }
+  });
+}
+
+// Airplane – Rust AirplaneSystem: multi-line ASCII art → pixel silhouette
+function px_planes(){
+  planes.forEach(p=>{
+    const px_=Math.floor(p.x), py_=Math.floor(p.y);
+    if(px_<0||py_<0) return;
+    // Contrail
+    ctx.fillStyle='rgba(220,240,255,.4)';
+    for(let i=1;i<=Math.min(8,px_);i++) ctx.fillRect(px_-i,py_,1,1);
+    // Body & wings (Rust airplane art compressed to 3×2 pixels)
+    ctx.fillStyle='#eceff1';
+    ctx.fillRect(px_,py_,2,1);
+    ctx.fillRect(px_-1,py_-1,1,1);
+    ctx.fillRect(px_+1,py_+1,1,1);
+  });
+}
+
+// Fireflies – Rust FireflySystem: glow brightness → char/color mapping
+function px_fireflies(){
+  fireflies.forEach(f=>{
+    const fx=Math.floor(f.x), fy=Math.floor(f.y);
+    if(fx<0||fy<0||fx>=canvas.width||fy>=canvas.height) return;
+    if(f.alpha<.15) return;
+    ctx.globalAlpha=f.alpha;
+    ctx.fillStyle=f.alpha>.65?'#ccff33':f.alpha>.35?'#c8ff64':'#9aaa64';
+    ctx.fillRect(fx,fy,1,1);
+  });
+  ctx.globalAlpha=1;
+}
+
+// Ground – Rust Ground::render: pseudo_rand deterministic top-layer pattern
+function px_ground(W,H,hy){
+  const groundH=H-hy;
+  // Snow-covered variant
+  if(isSnowing()||condition==='snow-grains'){
+    ctx.fillStyle=isDay?'#e3f2fd':'#bbdefb';
+    ctx.fillRect(0,hy,W,1);
+    ctx.fillStyle=isDay?'#f1f8e9':'#c8e6c9';
+    ctx.fillRect(0,hy+1,W,groundH-1);
+    return;
+  }
+  // Soil base (Rust: lower layers soil_color)
+  ctx.fillStyle=isDay?'#654321':'#3c2814';
+  ctx.fillRect(0,hy+1,W,groundH-1);
+  // Top grass row pixel-by-pixel (mirrors Rust pseudo_rand(x,y) pattern)
+  const grass=isDay?['#388e3c','#2e7d32']:['#1b5e20','#003200'];
+  const flowers=isDay?['#e91e63','#f44336','#00bcd4','#ffeb3b']:['#880e4f','#b71c1c','#1565c0','#f9a825'];
+  for(let x=0;x<W;x++){
+    const r=((x^0x5DEECE6)>>>0)%100;
+    ctx.fillStyle=r<5?flowers[x%flowers.length]:r<15?grass[1]:grass[0];
+    ctx.fillRect(x,hy,1,1);
+  }
+  // Sparse soil texture (Rust: 20% chance of ~ or . in lower rows)
+  ctx.fillStyle=isDay?'#795548':'#4e342e';
+  for(let y=1;y<Math.min(groundH,6);y++){
+    for(let x=0;x<W;x+=3){
+      if((((x^0x5DEECE6)*((y^0xB)+1))>>>0)%100<12) ctx.fillRect(x,hy+y,1,1);
+    }
+  }
+}
+
+// Trees – Rust Decorations (tree/pine shapes) + scene treeLayout
+function px_trees(hy){
+  treeLayout.forEach(t=>{
+    const tx=Math.floor(t.x), tby=Math.floor(t.baseY);
+    const th=Math.max(2,Math.floor(t.h));
+    const tw=Math.max(1,Math.floor(t.w));
+    const trunkW=Math.max(1,Math.round(tw*0.25));
+    ctx.globalAlpha=t.alpha;
+    // Trunk (Rust: _||_ pattern)
+    const trH=Math.max(1,Math.floor(th*.3));
+    ctx.fillStyle=isDay?'#5d3f23':'#322112';
+    ctx.fillRect(tx-Math.floor(trunkW/2),tby-trH,trunkW,trH);
+    // Canopy
+    const cy=tby-trH;
+    ctx.fillStyle=isDay?'#2e7d32':'#1b3e20';
+    if(t.species==='pine'||t.species==='spruce'){
+      // Triangle (Rust: layered triangle ####)
+      const ch=Math.max(2,Math.floor(th*.55));
+      for(let r=0;r<ch;r++){
+        const rw=Math.max(1,Math.floor(tw*(r+1)/ch));
+        ctx.fillRect(tx-Math.floor(rw/2),cy-ch+r,rw,1);
+      }
+    } else {
+      // Round/tall/birch → circle (Rust: #### ellipse canopy)
+      const cr=Math.max(1,Math.floor(Math.min(tw,th*.4)/2));
+      for(let dy=-cr;dy<=cr;dy++) for(let dx=-cr;dx<=cr;dx++){
+        if(dx*dx+dy*dy<=cr*cr) ctx.fillRect(tx+dx,cy-cr+dy,1,1);
+      }
+    }
+    // Snow cap
+    if(isSnowing()){
+      ctx.fillStyle='rgba(230,245,255,.75)';
+      const cw=Math.max(1,Math.floor(tw*.5));
+      ctx.fillRect(tx-Math.floor(cw/2),cy-Math.floor(th*.45),cw,1);
+    }
+  });
+  ctx.globalAlpha=1;
+}
+
+// House – Rust House: chimney + roof trapezoid + walls + windows + door + fences
+function px_house(W,hy){
+  const hw=24, hh=12, hx=Math.floor(W/2-hw/2), wy=hy-hh;
+  const roofC=isDay?'#b71c1c':isStorm()?'#4a148c':'#6a0dad';
+  const wallC=isDay?'#d7b991':'#5f412d';
+  const winC =isDay?'#80deea':isStorm()?'#ffd54f':'#fff176';
+
+  // Chimney (Rust: CHIMNEY_X_OFFSET=10 → pixel ≈ 4)
+  ctx.fillStyle='#4e342e';
+  ctx.fillRect(hx+6,wy-12,3,7);
+
+
+  // Walls (Rust: | ... | body)
+  ctx.fillStyle=wallC;
+  ctx.fillRect(hx,wy,hw,hh);
+
+  // Roof trapezoid (Rust: widening _.-'... lines)
+  ctx.fillStyle=roofC;
+  for(let r=0;r<7;r++){
+    const rw=Math.floor(hw+9-(6-r)*2.4);
+    ctx.fillRect(hx+Math.floor(hw/2)-Math.floor(rw/2),wy-5+r,rw,1);
+  }
+
+  // Windows (Rust: [] [] [] [] pairs, 3×3 pixel squares)
+  ctx.fillStyle=winC;
+  ctx.fillRect(hx+5,wy+3,3,3);
+  ctx.fillRect(hx+12,wy+3,3,3);
+  ctx.fillRect(hx+hw-15,wy+3,3,3);
+  ctx.fillRect(hx+hw-8,wy+3,3,3);
+  // Window glow at night/storm (Rust: window_color = Yellow at night)
+  if(!isDay||isStorm()){
+    ctx.globalAlpha=.25; ctx.fillStyle=winC;
+    ctx.fillRect(hx+4,wy+2,5,5); ctx.fillRect(hx+11,wy+2,5,5);
+    ctx.fillRect(hx+hw-16,wy+2,5,5); ctx.fillRect(hx+hw-9,wy+1,4,4);
+    ctx.globalAlpha=1;
+  }
+
+  // Door (Rust: __|() door arch pattern)
+  const dx=hx+Math.floor(hw/2)-2;
+  ctx.fillStyle='#5d4037'; ctx.fillRect(dx,wy+hh-6,4,6);
+  ctx.fillStyle='#ffd54f'; ctx.fillRect(dx+3,wy+hh-4,1,1); // knob
+
+  // Path (Rust: === ground path)
+  ctx.fillStyle=isDay?'#9e9e9e':'#616161';
+  ctx.fillRect(dx-1,hy,6,3);
+
+  // Fences (Rust: |--|--|-- pattern, left & right of house)
+  ctx.fillStyle=isDay?'#e6c96a':'#8d6e63';
+  for(let i=0;i<7;i++) ctx.fillRect(hx-21+i*3,hy-4,1,4);
+  ctx.fillRect(hx-21,hy-3,21,1);
+  for(let i=0;i<7;i++) ctx.fillRect(hx+hw+3+i*3,hy-4,1,4);
+  ctx.fillRect(hx+hw+2,hy-3,21,1);
+
+  // Mailbox (Rust: ___ / |___| / | decoration)
+  const mbx=hx-24;
+  if(mbx>0){
+    ctx.fillStyle=isDay?'#1565c0':'#0d47a1';
+    ctx.fillRect(mbx,hy-4,3,2);
+    ctx.fillRect(mbx+1,hy-2,1,2);
+  }
+}
+
+// Chimney smoke – Rust ChimneySmoke: particle age → char/color (o → . → ~ → ·)
+function px_smoke(){
+  smoke.forEach(s=>{
+    const sx=Math.floor(s.x), sy=Math.floor(s.y);
+    if(sx<0||sy<0||sx>=canvas.width||sy>=canvas.height) return;
+    ctx.globalAlpha=Math.max(0,s.alpha);
+    ctx.fillStyle=s.life>.7?'#e0e0e0':s.life>.4?'#90a4ae':'#546e7a';
+    ctx.fillRect(sx,sy,1,1);
+  });
+  ctx.globalAlpha=1;
+}
+
+// Rain – Rust RaindropSystem: intensity-based chars (|, :, ., /)
+function px_rain(){
+  raindrops.forEach(d=>{
+    const rx=Math.floor(d.x), ry=Math.floor(d.y);
+    if(rx<0||ry<0||rx>=canvas.width||ry>=canvas.height) return;
+    if(d.isHail){
+      ctx.fillStyle='rgba(200,230,255,.9)'; ctx.fillRect(rx,ry,1,1);
+    } else {
+      ctx.fillStyle=condition==='drizzle'?'#8ec8ff':'#64b5f6';
+      ctx.fillRect(rx,ry,1,1);
+      // 2px line for heavier rain (Rust: | char is one cell, but storm uses \\ or /)
+      if(ry>0&&condition!=='drizzle') ctx.fillRect(rx,ry-1,1,1);
+    }
+  });
+}
+
+// Snow – Rust SnowSystem: chars ., ·, *
+function px_snow(){
+  snowflakes.forEach(sf=>{
+    const sx=Math.floor(sf.x), sy=Math.floor(sf.y);
+    if(sx<0||sy<0||sx>=canvas.width||sy>=canvas.height) return;
+    ctx.fillStyle='#ebf5ff'; ctx.fillRect(sx,sy,1,1);
+  });
+}
+
+// Lightning – Rust ThunderstormSystem: bolt segments with + / \ | chars
+function px_lightning(W,H){
+  if(lightningFlash>.04){
+    ctx.globalAlpha=lightningFlash*.18;
+    ctx.fillStyle='#c8e1ff'; ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha=1;
+  }
+  lightningBolts.forEach(b=>{
+    ctx.globalAlpha=b.life; ctx.fillStyle='#c8dcff';
+    b.segs.forEach(s=>{
+      // Bresenham-like pixel line (Rust: per-segment char rendering)
+      const sdx=s.x2-s.x1, sdy=s.y2-s.y1;
+      const steps=Math.max(Math.abs(sdx|0),Math.abs(sdy|0),1);
+      for(let i=0;i<=steps;i++){
+        const t=i/steps;
+        ctx.fillRect(Math.floor(s.x1+sdx*t),Math.floor(s.y1+sdy*t),1,1);
+      }
+    });
+  });
+  ctx.globalAlpha=1;
+}
+
+// Fog – Rust FogSystem: scattered wisps (chars ., ,, -, ~)
+function px_fog(W){
+  fogParticles.forEach(f=>{
+    ctx.globalAlpha=f.alpha; ctx.fillStyle='#b0bec5';
+    const fx=Math.floor(f.x), fy=Math.floor(f.y);
+    const fw=Math.min(Math.floor(f.w),16), fh=Math.min(Math.floor(f.h),4);
+    for(let dy=0;dy<fh;dy++) for(let dx=0;dx<fw;dx+=2){
+      if(fx+dx>=0&&fx+dx<W&&fy+dy>=0&&fy+dy<canvas.height)
+        ctx.fillRect(fx+dx,fy+dy,1,1);
+    }
+  });
+  ctx.globalAlpha=1;
+}
+
+// Leaves – Rust FallingLeaves: colored pixel per leaf
+function px_leaves(){
+  leaves.forEach(l=>{
+    const lx=Math.floor(l.x), ly=Math.floor(l.y);
+    if(lx<0||ly<0||lx>=canvas.width||ly>=canvas.height) return;
+    ctx.fillStyle=l.color; ctx.fillRect(lx,ly,1,1);
+  });
+}
 
 // ============================================================
 //  WEATHER FETCH
@@ -1299,6 +1489,16 @@ function loop(){
   }
 
   if(CFG.pixelMode){
+    // Detect viewport aspect-ratio changes and resize the pixel buffer
+    const cssW = canvas.offsetWidth  || canvas.clientWidth  || 0;
+    const cssH = canvas.offsetHeight || canvas.clientHeight || 0;
+    const needW = Math.max(80, Math.round(PIXEL_H * (cssW / (cssH||1))));
+    if(canvas.width !== needW){
+      canvas.width  = needW;
+      canvas.height = PIXEL_H;
+      _lastW = needW; _lastH = PIXEL_H;
+      if(weatherData){ initScene(); px_initParticles(); }
+    }
     ctx.clearRect(0,0,canvas.width,canvas.height);
     // Stars still need twinkle update (shared array, pixel coords already correct)
     if(!isDay) stars.forEach(s=>{

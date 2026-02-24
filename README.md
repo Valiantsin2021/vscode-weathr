@@ -37,8 +37,8 @@ All settings are under `vscode-weathr.*` in VS Code Settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `location.latitude` | `52.52` | Latitude (–90 to 90) |
-| `location.longitude` | `13.41` | Longitude (–180 to 180) |
+| `location.latitude` | `36.60` | Latitude (–90 to 90) |
+| `location.longitude` | `4.52` | Longitude (–180 to 180) |
 | `location.auto` | `true` | Auto-detect via IP |
 | `location.hide` | `false` | Hide coordinates in HUD |
 | `hideHUD` | `false` | Hide weather HUD overlay |
@@ -94,4 +94,4 @@ npm run compile
 
 ## License
 
-GPL-3.0-or-later
+MIT
