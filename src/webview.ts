@@ -551,7 +551,7 @@ function _treeGreen(lb, sat){
 function drawGround(){
   const hy=HY();
   const g=ctx.createLinearGradient(0,hy,0,canvas.height);
-  if(isSnowing()){
+  if(isSnowing() || temperature < -2){
     g.addColorStop(0,isDay?'#e3f2fd':'#bbdefb');
     g.addColorStop(1,isDay?'#f1f8e9':'#c8e6c9');
   } else {
@@ -1193,7 +1193,7 @@ function px_fireflies(){
 function px_ground(W,H,hy){
   const groundH=H-hy;
   // Snow-covered variant
-  if(isSnowing()||condition==='snow-grains'){
+  if(isSnowing()||condition==='snow-grains'||temperature<-2){
     ctx.fillStyle=isDay?'#e3f2fd':'#bbdefb';
     ctx.fillRect(0,hy,W,1);
     ctx.fillStyle=isDay?'#f1f8e9':'#c8e6c9';
