@@ -1,9 +1,9 @@
 {
   "name": "vscode-weathr",
-  "displayName": "weathr - Weather Animations",
-  "description": "Live ASCII weather animations in your VS Code sidebar, powered by real-time weather data from Open-Meteo.",
+  "displayName": "Weathr - Weather Animations",
+  "description": "Live weather animations in your VS Code sidebar, powered by real-time weather data from Open-Meteo.",
   "version": "1.0.0",
-  "publisher": "veirt",
+  "publisher": "valentin-l",
   "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.85.0"
@@ -251,7 +251,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/veirt/weathr"
+    "url": "https://github.com/Valiantsin2021/vscode-weathr"
   },
   "license": "GPL-3.0-or-later"
 }
