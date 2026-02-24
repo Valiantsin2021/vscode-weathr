@@ -1,4 +1,4 @@
-# weathr VS Code Extension
+# Weathr VS Code Extension
 
 A VS Code extension that brings the **weathr** terminal weather app experience into your editor — live weather animations in a canvas-based webview panel, powered by real-time data from [Open-Meteo](https://open-meteo.com/).
 
@@ -20,6 +20,16 @@ Inspired by the approach of [vscode-pets](https://marketplace.visualstudio.com/i
 1. Open the **Command Palette** (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 2. Run `Weathr: Start Weather Animation`
 3. Or find **Weathr** in the bottom panel tabs
+
+## Screenshots
+
+### Pixel mode
+
+![Weathr Screenshot 1](./media/screenshot_1.png)
+
+### Canvas mode
+
+![Weathr Screenshot 2](./media/screenshot_2.png)
 
 ## Commands
 
