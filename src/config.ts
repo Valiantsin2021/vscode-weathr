@@ -13,6 +13,8 @@ export interface WeathrConfig {
   animationSpeed: 'slow' | 'normal' | 'fast'
   theme: 'auto' | 'dark' | 'light',
   pixelMode: boolean
+  locationMode: 'auto' | 'manual' | 'coordinates'
+  manualLocation: string
 }
 
 export function getConfig(): WeathrConfig {
@@ -29,6 +31,8 @@ export function getConfig(): WeathrConfig {
     showLeaves: cfg.get<boolean>('showLeaves', false),
     animationSpeed: cfg.get<'slow' | 'normal' | 'fast'>('animationSpeed', 'normal'),
     pixelMode: cfg.get<boolean>('pixelMode', false),
-    theme: cfg.get<'auto' | 'dark' | 'light'>('theme', 'auto')
+    theme: cfg.get<'auto' | 'dark' | 'light'>('theme', 'auto'),
+    locationMode: cfg.get<'auto' | 'manual' | 'coordinates'>('location.mode', 'auto'),
+    manualLocation: cfg.get<string>('location.manual', '')
   }
 }

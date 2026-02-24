@@ -311,7 +311,7 @@ function spawnLeaf(init){
   leaves.push({
     x:Math.random()*canvas.width,
     y:init ? Math.random()*HY() : -16,
-    vy:(Math.random()*1.4+.7)*SPD(),
+    vy:(Math.random()*1.4+.7)*SPD()*0.5,
     vx:(Math.random()-.5)*1.5,
     angle:Math.random()*Math.PI*2,
     spin:(Math.random()-.5)*.12,
@@ -570,7 +570,7 @@ function drawGround(){
 // ============================================================
 function drawHouse(){
   const hy=HY();
-  const cx=canvas.width/2-55, by=hy-4;
+  const cx=canvas.width/2-55, by=hy;
   const houseW=110, houseH=72;
   const roofC=isDay?'#b71c1c':isStorm()?'#4a148c':'#6a0dad';
   const wallC =isDay?'rgba(215,185,145,1)':'rgba(95,65,45,1)';
@@ -969,7 +969,7 @@ function px_initParticles(){
     const lc=Math.max(5,Math.floor(W/40));
     for(let i=0;i<lc;i++) leaves.push({
       x:Math.random()*W, y:Math.random()*hy,
-      vy:(Math.random()*.12+.06)*SPD(),
+      vy:(Math.random()*.12+.06)*SPD()*0.5,
       vx:(Math.random()-.5)*.15,
       angle:0, spin:0,
       wobble:Math.random()*Math.PI*2,
@@ -1405,12 +1405,31 @@ const WMO={0:'clear',1:'clear',2:'partly-cloudy',3:'overcast',45:'fog',48:'fog',
 
 async function fetchWeather(){
   let lat=CFG.latitude, lon=CFG.longitude;
-  if(CFG.autoLocation){
+
+  // Handle location based on mode
+  if(CFG.locationMode==='manual' && CFG.manualLocation){
+    // Geocode manual location (town name or postcode)
+    try{
+      const geocodeUrl=\`https://nominatim.openstreetmap.org/search?q=\${encodeURIComponent(CFG.manualLocation)}&format=json&limit=1\`;
+      const gRes=await fetch(geocodeUrl);
+      const gData=await gRes.json();
+      if(gData && gData.length>0){
+        lat=parseFloat(gData[0].lat);
+        lon=parseFloat(gData[0].lon);
+        CFG.latitude=lat;
+        CFG.longitude=lon;
+      }
+    }catch(e){
+      console.error('Geocoding failed:', e);
+    }
+  } else if(CFG.autoLocation){
+    // Auto-detect location from IP
     try{
       const g=await fetch('https://ipinfo.io/json').then(r=>r.json());
       if(g&&g.loc){const pts=g.loc.split(',');lat=parseFloat(pts[0]);lon=parseFloat(pts[1]);CFG.latitude=lat;CFG.longitude=lon;}
     }catch(e){}
   }
+
   const url=\`https://api.open-meteo.com/v1/forecast?latitude=\${lat}&longitude=\${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,cloud_cover,surface_pressure,is_day,weather_code&forecast_days=1&timezone=auto\`;
   const r=await fetch(url); if(!r.ok) throw new Error('api');
   const d=await r.json(); const c=d.current;

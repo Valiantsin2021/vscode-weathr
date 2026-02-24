@@ -100,6 +100,29 @@ export function activate(context: vscode.ExtensionContext) {
     WeathrPanel.currentPanel?.updateConfig()
   })
 
+  // ── Manual location setting ────────────────────────────
+
+  const setLocationCmd = vscode.commands.registerCommand('vscode-weathr.setLocation', async () => {
+    const location = await vscode.window.showInputBox({
+      placeHolder: 'Enter town name or postcode',
+      prompt: 'Set location for weather (e.g., "London" or "SW1A 1AA")',
+      title: 'Weathr: Set Location'
+    })
+
+    if (!location) {
+      return
+    }
+
+    const cfg = vscode.workspace.getConfiguration('vscode-weathr')
+    await cfg.update('location.manual', location, vscode.ConfigurationTarget.Global)
+    await cfg.update('location.mode', 'manual', vscode.ConfigurationTarget.Global)
+
+    vscode.window.showInformationMessage(`Weathr: Location set to "${location}"`)
+    ensurePanel(context)
+    WeathrPanel.currentPanel?.updateConfig()
+    WeathrPanel.currentPanel?.refresh()
+  })
+
   // ── Register both WebView providers ────────────────────────────────────
 
   // 1) Bottom panel view
@@ -118,7 +141,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   )
 
-  context.subscriptions.push(startCmd, refreshCmd, simulateCmd, toggleHUDCmd, toggleLeavesCmd, switchPanelCmd, cfgWatcher, togglePixelCmd)
+  context.subscriptions.push(startCmd, refreshCmd, simulateCmd, toggleHUDCmd, toggleLeavesCmd, switchPanelCmd, cfgWatcher, togglePixelCmd, setLocationCmd)
 }
 
 export function deactivate() {

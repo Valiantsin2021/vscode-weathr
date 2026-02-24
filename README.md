@@ -8,10 +8,10 @@ Inspired by the approach of [vscode-pets](https://marketplace.visualstudio.com/i
 
 - 🌦️ **Live weather animations** — rain, snow, thunderstorm, drizzle, fog, clear, partly-cloudy, overcast
 - 🌅 **Day/night cycle** — stars, moon, fireflies at night; sun, birds, airplanes during the day
+- 📍 **Flexible location** — auto-detect via IP, specify by town/postcode, or use coordinates
 - 🏠 **Animated scene** — house with chimney smoke, trees, fence, road
 - 🍂 **Falling leaves** — optional autumn leaves animation
 - ⚡ **Thunderstorm lightning** — screen flashes, animated bolts
-- 📍 **Auto-location** — detects your city via IP (ipinfo.io)
 - 🌡️ **HUD overlay** — condition, temperature, wind, precipitation, coordinates
 - 🎨 **Configurable** — all weathr config options exposed as VS Code settings
 
@@ -30,6 +30,7 @@ Inspired by the approach of [vscode-pets](https://marketplace.visualstudio.com/i
 | `Weathr: Simulate Weather Condition` | Pick any weather condition to preview |
 | `Weathr: Toggle HUD` | Show/hide the status bar overlay |
 | `Weathr: Toggle Falling Leaves` | Enable/disable autumn leaves |
+| `Weathr: Set Location by Town or Postcode` | Manually set location (e.g., "London" or "SW1A 1AA") |
 
 ## Configuration
 
@@ -37,9 +38,10 @@ All settings are under `vscode-weathr.*` in VS Code Settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `location.mode` | `auto` | Location mode: `auto` (IP), `manual` (town/postcode), `coordinates` |
+| `location.manual` | `` | Manual location string (e.g., "London" or "SW1A 1AA"), used when mode is `manual` |
 | `location.latitude` | `36.60` | Latitude (–90 to 90) |
 | `location.longitude` | `4.52` | Longitude (–180 to 180) |
-| `location.auto` | `true` | Auto-detect via IP |
 | `location.hide` | `false` | Hide coordinates in HUD |
 | `hideHUD` | `false` | Hide weather HUD overlay |
 | `units.temperature` | `celsius` | `celsius` or `fahrenheit` |
@@ -56,15 +58,42 @@ All settings are under `vscode-weathr.*` in VS Code Settings:
 - **Snow**: snow, snow-grains, snow-showers
 - **Storms**: thunderstorm, thunderstorm-hail
 
-## Configuration Example
+## Setting Location
 
-- Open Command Palette (Ctrl+Shift+P)
-- Run Preferences: Open User Settings (JSON)
-- Add your settings, e.g.:
+You have three options to set your location:
+
+### 1. Auto-detect (default)
+Set `location.mode` to `auto` to detect your location using your IP address.
+
+### 2. Manual location (town or postcode)
+Run the **`Weathr: Set Location by Town or Postcode`** command and enter a location name:
+- Town names: "London", "New York", "Tokyo"
+- Postcodes: "SW1A 1AA", "10001", "100-0001"
+
+The location will be automatically geocoded and weather will update immediately.
+
+### 3. Manual coordinates
+Set `location.mode` to `coordinates` and configure:
+- `location.latitude` — latitude of your location
+- `location.longitude` — longitude of your location
+
+## Configuration Example
 
 ```json
 {
-  "vscode-weathr.location.auto": false,
+  "vscode-weathr.location.mode": "manual",
+  "vscode-weathr.location.manual": "Paris",
+  "vscode-weathr.units.temperature": "celsius",
+  "vscode-weathr.units.windSpeed": "kmh",
+  "vscode-weathr.units.precipitation": "mm"
+}
+```
+
+Or use coordinates-based location:
+
+```json
+{
+  "vscode-weathr.location.mode": "coordinates",
   "vscode-weathr.location.latitude": 40.7128,
   "vscode-weathr.location.longitude": -74.0060,
   "vscode-weathr.units.temperature": "celsius",
@@ -73,9 +102,9 @@ All settings are under `vscode-weathr.*` in VS Code Settings:
 }
 ```
 
-## Privacy
+## Geocoding
 
-When `location.auto` is `true`, a request is made to `ipinfo.io` to determine your approximate location. Set `location.auto` to `false` and configure latitude/longitude manually to avoid this.
+When using manual location mode, town/postcode names are converted to coordinates using the [Nominatim API](https://nominatim.org/) (free OpenStreetMap geocoding service). No API key is required.
 
 ## Development
 
@@ -94,4 +123,4 @@ npm run compile
 
 ## License
 
-MIT
+GPL-3.0-or-later

@@ -56,6 +56,11 @@
         "command": "vscode-weathr.togglePixelMode",
         "title": "Weathr: Toggle Pixel Mode",
         "category": "Weathr"
+      },
+      {
+        "command": "vscode-weathr.setLocation",
+        "title": "Set Location by Town or Postcode",
+        "category": "Weathr"
       }
     ],
     "configuration": {
@@ -89,6 +94,26 @@
           "type": "boolean",
           "default": false,
           "description": "Hide location coordinates in the HUD."
+        },
+        "vscode-weathr.location.mode": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "manual",
+            "coordinates"
+          ],
+          "enumDescriptions": [
+            "Auto-detect location via IP",
+            "Manual location by town or postcode",
+            "Use configured coordinates"
+          ],
+          "description": "Location mode for weather data."
+        },
+        "vscode-weathr.location.manual": {
+          "type": "string",
+          "default": "",
+          "description": "Manual location (town name or postcode). Used when location.mode is 'manual'."
         },
         "vscode-weathr.hideHUD": {
           "type": "boolean",
