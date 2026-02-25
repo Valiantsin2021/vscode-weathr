@@ -21,45 +21,169 @@ export function getWebviewContent(
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;font-family:'Courier New',monospace}
-  #canvas{display:block;width:100%;height:100%}
-  /* Pixel canvas: render at low res, scale up crisply */
+  #canvas{display:block;width:100%;height:100%;cursor:crosshair}
   #canvas.pixel-mode{image-rendering:pixelated;image-rendering:crisp-edges}
-  #hud{position:absolute;bottom:0;left:0;right:0;padding:5px 10px;background:rgba(0,0,0,0.58);color:#00e5ff;font-size:10px;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid rgba(0,229,255,0.2);backdrop-filter:blur(4px)}
+  #canvas.dragging{cursor:grab}
+
+  /* HUD */
+  #hud{position:absolute;bottom:0;left:0;right:0;padding:5px 10px;background:rgba(0,0,0,0.58);color:#00e5ff;font-size:10px;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid rgba(0,229,255,0.2);backdrop-filter:blur(4px);transition:opacity .3s}
   #hud span{opacity:.75;margin-right:9px}
   #hud .offline{color:#ff5252;font-weight:bold;margin-right:8px}
+
+  /* Loading overlay */
   #load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:#0a0a1a;color:#00e5ff;font-size:13px;transition:opacity .5s}
   #load.gone{opacity:0;pointer-events:none}
   .spin{width:30px;height:30px;border:3px solid rgba(0,229,255,.2);border-top-color:#00e5ff;border-radius:50%;animation:sp .8s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* Tooltip */
+  #tooltip{
+    position:absolute;pointer-events:none;background:rgba(0,0,0,.82);border:1px solid rgba(0,229,255,.35);
+    color:#00e5ff;font-size:10px;padding:7px 10px;border-radius:4px;backdrop-filter:blur(6px);
+    opacity:0;transition:opacity .15s;white-space:nowrap;max-width:200px;line-height:1.6;
+    box-shadow:0 2px 12px rgba(0,229,255,.15);z-index:20
+  }
+  #tooltip.vis{opacity:1}
+  #tooltip .tt-title{font-size:11px;font-weight:bold;margin-bottom:3px;color:#fff;letter-spacing:.05em}
+  #tooltip .tt-row{display:flex;justify-content:space-between;gap:16px}
+  #tooltip .tt-key{opacity:.6}
+  #tooltip .tt-val{color:#80deea}
+
+  /* Context menu */
+  #ctxmenu{
+    position:absolute;background:rgba(10,10,26,.95);border:1px solid rgba(0,229,255,.25);
+    color:#cdd;font-size:11px;border-radius:5px;overflow:hidden;z-index:50;
+    box-shadow:0 4px 20px rgba(0,0,0,.6);min-width:160px;display:none
+  }
+  #ctxmenu .ctx-header{padding:6px 12px 4px;font-size:9px;text-transform:uppercase;
+    letter-spacing:.1em;opacity:.45;border-bottom:1px solid rgba(255,255,255,.07)}
+  #ctxmenu .ctx-item{
+    padding:7px 12px;cursor:pointer;transition:background .1s;display:flex;align-items:center;gap:8px
+  }
+  #ctxmenu .ctx-item:hover{background:rgba(0,229,255,.12);color:#00e5ff}
+  #ctxmenu .ctx-item .ctx-icon{font-size:14px;width:18px;text-align:center}
+  #ctxmenu .ctx-sep{height:1px;background:rgba(255,255,255,.07);margin:2px 0}
+  #ctxmenu .ctx-check{margin-left:auto;opacity:.5;font-size:9px}
+  #ctxmenu .ctx-check.on{opacity:1;color:#00e5ff}
+
+  /* Floating control bar */
+  #controls{
+    position:absolute;bottom:30px;left:50%;transform:translateX(-50%) translateY(8px);
+    display:flex;gap:4px;background:rgba(0,0,0,.65);border:1px solid rgba(0,229,255,.2);
+    border-radius:24px;padding:4px 8px;backdrop-filter:blur(8px);
+    opacity:0;transition:opacity .3s, transform .3s;pointer-events:none;z-index:15
+  }
+  #controls.vis{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:all}
+  .ctrl-btn{
+    width:28px;height:28px;border-radius:50%;border:none;background:transparent;
+    cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;
+    transition:background .15s, transform .1s;position:relative
+  }
+  .ctrl-btn:hover{background:rgba(0,229,255,.15);transform:scale(1.15)}
+  .ctrl-btn:active{transform:scale(.92)}
+  .ctrl-btn.active{background:rgba(0,229,255,.22)}
+  .ctrl-btn[data-tip]:hover::after{
+    content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;
+    transform:translateX(-50%);background:rgba(0,0,0,.9);color:#00e5ff;
+    font-size:9px;white-space:nowrap;padding:3px 7px;border-radius:3px;pointer-events:none;
+    border:1px solid rgba(0,229,255,.2)
+  }
+
+  /* Ripple/splash effects container */
+  #fx{position:absolute;inset:0;pointer-events:none;z-index:10}
+
+  /* Keyboard shortcut hint */
+  #keyhint{
+    position:absolute;top:8px;right:8px;color:rgba(0,229,255,.35);font-size:8px;
+    letter-spacing:.06em;text-align:right;pointer-events:none;line-height:1.7;
+    opacity:0;transition:opacity .4s
+  }
+  #keyhint.vis{opacity:1}
+
+  /* Wind direction indicator */
+  #windrose{
+    position:absolute;top:10px;left:10px;width:36px;height:36px;
+    pointer-events:none;opacity:0;transition:opacity .3s
+  }
+  #windrose.vis{opacity:.7}
+
+  /* Rainbow overlay canvas */
+  #rainbowCanvas{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 1s;z-index:5}
+
+  /* Shooting star canvas */
+  #shootCanvas{position:absolute;inset:0;pointer-events:none;z-index:6}
+
+  /* Click ripple SVG */
+  .ripple-svg{position:absolute;pointer-events:none;animation:rippleFade .8s ease-out forwards}
+  @keyframes rippleFade{0%{opacity:.9;transform:scale(.3)}100%{opacity:0;transform:scale(1)}}
+
+  /* Snowpuff */
+  .snowpuff{position:absolute;pointer-events:none;font-size:18px;animation:puffUp .7s ease-out forwards}
+  @keyframes puffUp{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-30px) scale(1.8)}}
+
+  /* Firefly burst */
+  .ff-burst{position:absolute;pointer-events:none;width:6px;height:6px;border-radius:50%;
+    background:#ccff33;animation:ffBurst var(--d,.6s) ease-out forwards}
+  @keyframes ffBurst{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(var(--tx,0),var(--ty,0)) scale(.4)}}
+
+  /* Wind gust flash */
+  #windgust{position:absolute;inset:0;pointer-events:none;z-index:4;opacity:0}
 </style>
 </head>
 <body>
 <canvas id="canvas"></canvas>
+<canvas id="rainbowCanvas"></canvas>
+<canvas id="shootCanvas"></canvas>
+<div id="windgust"></div>
+<div id="fx"></div>
 <div id="hud"></div>
+<div id="tooltip"></div>
+<div id="ctxmenu"></div>
+<div id="controls"></div>
+<svg id="windrose" viewBox="0 0 36 36"></svg>
+<div id="keyhint"></div>
 <div id="load"><div class="spin"></div><span>Fetching weather...</span></div>
+
 <script>
-// --- CONFIG ---
+// ============================================================
+//  CONFIG
+// ============================================================
 let CFG = ${configJson};
 let SIM = ${simulateJson};
 
-// --- PIXEL MODE CONSTANTS ---
-// Logical pixel resolution for pixel mode (scaled up by CSS)
+// ============================================================
+//  PIXEL MODE CONSTANTS
+// ============================================================
 const PIXEL_W = 300;
 const PIXEL_H = 100;
 
-// --- CANVAS ---
+// ============================================================
+//  CANVAS
+// ============================================================
 const canvas = document.getElementById('canvas');
 const ctx    = canvas.getContext('2d');
 const hud    = document.getElementById('hud');
 const load   = document.getElementById('load');
+const tooltip = document.getElementById('tooltip');
+const ctxmenu = document.getElementById('ctxmenu');
+const controls = document.getElementById('controls');
+const fxDiv   = document.getElementById('fx');
+const keyhint = document.getElementById('keyhint');
+const windrose = document.getElementById('windrose');
+const rainbowCanvas = document.getElementById('rainbowCanvas');
+const rainbowCtx = rainbowCanvas.getContext('2d');
+const shootCanvas = document.getElementById('shootCanvas');
+const shootCtx = shootCanvas.getContext('2d');
+const windgust = document.getElementById('windgust');
 
-// BUG FIX: resize() was called once at startup before the canvas had CSS
-// dimensions (common in VS Code webviews). We now guard inside the loop.
 function resize(){
+  // Sync overlay canvases to viewport
+  rainbowCanvas.width  = window.innerWidth;
+  rainbowCanvas.height = window.innerHeight;
+  shootCanvas.width    = window.innerWidth;
+  shootCanvas.height   = window.innerHeight;
+
   if(CFG.pixelMode){
-    // In pixel mode, the canvas BUFFER is tiny; CSS stretches it up.
-    // Compute buffer width from the viewport aspect ratio so the image
-    // is never squished/stretched when the window shape changes.
     const cssW = canvas.offsetWidth  || canvas.clientWidth  || 400;
     const cssH = canvas.offsetHeight || canvas.clientHeight || 300;
     const aspect = cssW / cssH;
@@ -81,11 +205,15 @@ window.addEventListener('resize', ()=>{
   }
 });
 
-// --- WEATHER STATE ---
+// ============================================================
+//  WEATHER STATE
+// ============================================================
 let weatherData=null, isOffline=false, isDay=true, condition='clear';
 let temperature=20, precipitation=0, windSpeed=10, windDirection=180, moonPhase=0.5;
 
-// --- PARTICLE POOLS ---
+// ============================================================
+//  PARTICLE POOLS
+// ============================================================
 let raindrops=[], snowflakes=[], clouds=[], stars=[], fireflies=[];
 let birds=[], planes=[], fogParticles=[], leaves=[], smoke=[];
 let lightningBolts=[], lightningFlash=0, nextLightFrame=200;
@@ -93,7 +221,7 @@ let treeLayout=[];
 let frame=0;
 
 const SPD = ()=> CFG.animationSpeed==='slow'?.5:CFG.animationSpeed==='fast'?2:1;
-const HY  = ()=> canvas.height * 0.73;  // horizon y
+const HY  = ()=> canvas.height * 0.73;
 
 // ---- CONDITION HELPERS ----
 const RAIN_CONDS  = new Set(['drizzle','rain','rain-showers','freezing-rain','thunderstorm','thunderstorm-hail']);
@@ -104,12 +232,668 @@ const isSnowing   = ()=> SNOW_CONDS.has(condition);
 const isStorm     = ()=> STORM_CONDS.has(condition);
 
 // ============================================================
+//  INTERACTION STATE
+// ============================================================
+let mouseX=0, mouseY=0;
+let isDragging=false, dragStartX=0, dragWindBase=windDirection;
+let showControls=false, controlsHoverTimeout=null;
+let keyhintVisible=false;
+
+// Click effects pool
+let clickSplashes=[];   // {x,y,t,type}
+let shootingStars=[];   // {x,y,vx,vy,trail:[],life,maxLife}
+let rainbowAlpha=0, rainbowTarget=0;
+
+// ============================================================
+//  BUILD CONTROL BAR
+// ============================================================
+function buildControls(){
+  const buttons = [
+    { id:'btn-night', icon:'🌙', tip:'Toggle Night (N)', action: ()=>{ isDay=!isDay; initScene(); if(CFG.pixelMode) px_initParticles(); updateHUD(); }},
+    { id:'btn-pixel', icon:'🕹', tip:'Pixel Mode (P)',   action: ()=>{ CFG.pixelMode=!CFG.pixelMode; resize(); if(weatherData){ initScene(); if(CFG.pixelMode) px_initParticles(); } updateHUD(); updateControlStates(); }},
+    { id:'btn-leaves',icon:'🍂', tip:'Toggle Leaves (L)',action: ()=>{ CFG.showLeaves=!CFG.showLeaves; if(!CFG.showLeaves) leaves=[]; updateControlStates(); }},
+    { id:'btn-rain',  icon:'🌧', tip:'Simulate Rain',    action: ()=> applySimulate('rain', !isDay) },
+    { id:'btn-snow',  icon:'❄️', tip:'Simulate Snow',    action: ()=> applySimulate('snow', !isDay) },
+    { id:'btn-storm', icon:'⛈', tip:'Simulate Storm',   action: ()=> applySimulate('thunderstorm', !isDay) },
+    { id:'btn-clear', icon:'☀️', tip:'Simulate Clear',   action: ()=> applySimulate('clear', !isDay) },
+    { id:'btn-fog',   icon:'🌫', tip:'Simulate Fog',     action: ()=> applySimulate('fog', !isDay) },
+    { id:'btn-refresh',icon:'🔄',tip:'Refresh (R)',      action: ()=> fetchWeather().catch(offlineWeather) },
+  ];
+  controls.innerHTML = '';
+  buttons.forEach(b=>{
+    const btn = document.createElement('button');
+    btn.className='ctrl-btn';
+    btn.id=b.id;
+    btn.textContent=b.icon;
+    btn.setAttribute('data-tip', b.tip);
+    btn.addEventListener('click', e=>{ e.stopPropagation(); b.action(); });
+    controls.appendChild(btn);
+  });
+  updateControlStates();
+}
+
+function updateControlStates(){
+  const pixelBtn = document.getElementById('btn-pixel');
+  const leavesBtn = document.getElementById('btn-leaves');
+  const nightBtn = document.getElementById('btn-night');
+  if(pixelBtn) pixelBtn.classList.toggle('active', !!CFG.pixelMode);
+  if(leavesBtn) leavesBtn.classList.toggle('active', !!CFG.showLeaves);
+  if(nightBtn) nightBtn.classList.toggle('active', !isDay);
+}
+
+// ============================================================
+//  KEYBOARD SHORTCUTS
+// ============================================================
+function buildKeyhint(){
+  keyhint.innerHTML = 'N night · P pixel · L leaves · R refresh<br>scroll = time · drag = wind · dblclick = event';
+}
+
+document.addEventListener('keydown', e=>{
+  if(e.target !== document.body && e.target.tagName !== 'BODY') return;
+  switch(e.key.toLowerCase()){
+    case 'n': isDay=!isDay; initScene(); if(CFG.pixelMode) px_initParticles(); updateHUD(); updateControlStates(); break;
+    case 'p': CFG.pixelMode=!CFG.pixelMode; resize(); if(weatherData){ initScene(); if(CFG.pixelMode) px_initParticles(); } updateHUD(); updateControlStates(); break;
+    case 'l': CFG.showLeaves=!CFG.showLeaves; if(!CFG.showLeaves) leaves=[]; updateControlStates(); break;
+    case 'r': fetchWeather().catch(offlineWeather); break;
+    case '?': case 'h':
+      keyhintVisible=!keyhintVisible;
+      keyhint.classList.toggle('vis', keyhintVisible);
+      break;
+    case 'escape': hideContextMenu(); break;
+  }
+});
+
+// ============================================================
+//  MOUSE / TOUCH INTERACTIONS
+// ============================================================
+
+// --- Hover tooltip ---
+canvas.addEventListener('mousemove', e=>{
+  mouseX = e.clientX; mouseY = e.clientY;
+  updateTooltipPosition(e.clientX, e.clientY);
+  if(!tooltip.classList.contains('vis') && weatherData) showTooltip();
+
+  // Show controls bar when cursor in lower 30%
+  const relY = e.clientY / window.innerHeight;
+  if(relY > 0.65){
+    clearTimeout(controlsHoverTimeout);
+    controls.classList.add('vis');
+    showControls=true;
+    controlsHoverTimeout = setTimeout(()=>{ controls.classList.remove('vis'); showControls=false; }, 2500);
+  }
+
+  // Show keyhint briefly on first move
+  if(!keyhintVisible){
+    keyhint.classList.add('vis');
+    clearTimeout(keyhint._t);
+    keyhint._t = setTimeout(()=> keyhint.classList.remove('vis'), 2000);
+  }
+
+  // Drag = shift wind direction
+  if(isDragging){
+    const dx = e.clientX - dragStartX;
+    windDirection = ((dragWindBase + dx * 1.2) % 360 + 360) % 360;
+    updateWindRose();
+    // Respawn rain with new direction
+    if(isRaining()){
+      raindrops.forEach(d=>{
+        const drift = ((windDirection%360)<180?1:-1) * (windSpeed/50) * (Math.random()*1.5+.5);
+        d.vx = drift;
+      });
+    }
+  }
+});
+
+canvas.addEventListener('mouseleave', ()=>{
+  tooltip.classList.remove('vis');
+  windrose.classList.remove('vis');
+});
+
+canvas.addEventListener('mouseenter', ()=>{
+  updateWindRose();
+  windrose.classList.add('vis');
+});
+
+// --- Scroll = cycle time ---
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  if(Math.abs(e.deltaY) > 10){
+    isDay = !isDay;
+    initScene();
+    if(CFG.pixelMode) px_initParticles();
+    updateHUD();
+    updateControlStates();
+    flashConditionBanner(isDay ? '🌅 Day' : '🌙 Night');
+  }
+}, { passive: false });
+
+// --- Click = weather-specific effect ---
+canvas.addEventListener('click', e=>{
+  hideContextMenu();
+  const x = e.clientX, y = e.clientY;
+  if(isStorm()){
+    triggerManualLightning(toCanvasX(x), toCanvasY(y));
+    spawnClickSplash(x, y, 'lightning');
+  } else if(isRaining()){
+    spawnRainSplash(x, y);
+  } else if(isSnowing()){
+    spawnSnowPuff(x, y);
+  } else if(!isDay &&temperature>10 && (condition==='clear'||condition==='partly-cloudy')){
+    spawnFireflyBurst(x, y);
+  } else if(isDay && (condition==='clear'||condition==='partly-cloudy')){
+    spawnSunSparkle(x, y);
+  } else if(condition==='fog'){
+    clearFogAt(toCanvasX(x), toCanvasY(y));
+  } else {
+    spawnLeafBurst(x, y);
+  }
+});
+
+// --- Double-click = dramatic weather event ---
+canvas.addEventListener('dblclick', e=>{
+  e.preventDefault();
+  if(isStorm()){
+    // Multiple lightning bolts
+    for(let i=0;i<4;i++){
+      setTimeout(()=>{
+        lightningFlash=1;
+        lightningBolts.push({segs:buildBolt(Math.random()*canvas.width,0,HY()),life:1});
+      }, i*120);
+    }
+    flashConditionBanner('⚡ Mega Strike!');
+  } else if(isRaining()){
+    // Trigger rainbow
+    rainbowTarget = 1;
+    rainbowCanvas.style.opacity = '1';
+    drawRainbow();
+    setTimeout(()=>{ rainbowTarget=0; fadeOutRainbow(); }, 4000);
+    flashConditionBanner('🌈 Rainbow!');
+  } else if(!isDay && condition==='clear'){
+    // Shooting star shower
+    for(let i=0;i<5;i++){
+      setTimeout(()=> spawnShootingStar(), i * 300);
+    }
+    flashConditionBanner('🌠 Shooting Stars!');
+  } else if(isDay && condition==='clear'){
+    // Sun flare burst
+    spawnSunFlare(e.clientX, e.clientY);
+    flashConditionBanner('☀️ Solar Flare!');
+  } else if(isSnowing()){
+    // Blizzard burst — temp boost to snow count
+    for(let i=0;i<30;i++) spawnFlake(false);
+    flashConditionBanner('🌨 Blizzard!');
+  } else {
+    // Wind gust
+    triggerWindGust();
+    flashConditionBanner('💨 Wind Gust!');
+  }
+});
+
+// --- Right-click = context menu ---
+canvas.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  showContextMenu(e.clientX, e.clientY);
+});
+
+// --- Drag = wind direction ---
+canvas.addEventListener('mousedown', e=>{
+  if(e.button !== 0) return;
+  isDragging=true;
+  dragStartX=e.clientX;
+  dragWindBase=windDirection;
+  canvas.classList.add('dragging');
+  windrose.classList.add('vis');
+});
+
+window.addEventListener('mouseup', ()=>{
+  isDragging=false;
+  canvas.classList.remove('dragging');
+});
+
+// --- Touch support ---
+let lastTouchDist=0, touchStartX=0, touchStartTime=0;
+
+canvas.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  if(e.touches.length===2){
+    lastTouchDist = Math.hypot(
+      e.touches[0].clientX-e.touches[1].clientX,
+      e.touches[0].clientY-e.touches[1].clientY
+    );
+  } else if(e.touches.length===1){
+    touchStartX = e.touches[0].clientX;
+    touchStartTime = Date.now();
+    dragStartX = touchStartX;
+    dragWindBase = windDirection;
+    isDragging=true;
+  }
+},{ passive:false });
+
+canvas.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  if(e.touches.length===2){
+    const dist = Math.hypot(
+      e.touches[0].clientX-e.touches[1].clientX,
+      e.touches[0].clientY-e.touches[1].clientY
+    );
+    const ratio = dist / (lastTouchDist||dist);
+    if(ratio < 0.75){ CFG.pixelMode=true; resize(); if(weatherData){ initScene(); px_initParticles(); } flashConditionBanner('🕹 Pixel Mode'); }
+    if(ratio > 1.35){ CFG.pixelMode=false; resize(); if(weatherData){ initScene(); } flashConditionBanner('🖼 Smooth Mode'); }
+    lastTouchDist=dist;
+  } else if(e.touches.length===1 && isDragging){
+    const dx = e.touches[0].clientX - dragStartX;
+    windDirection = ((dragWindBase + dx*1.5)%360+360)%360;
+    updateWindRose();
+  }
+},{ passive:false });
+
+canvas.addEventListener('touchend', e=>{
+  e.preventDefault();
+  isDragging=false;
+  if(e.changedTouches.length===1){
+    const dt = Date.now()-touchStartTime;
+    const moved = Math.abs(e.changedTouches[0].clientX - touchStartX);
+    if(dt < 200 && moved < 10){
+      // Tap = click effect
+      const t = e.changedTouches[0];
+      canvas.dispatchEvent(new MouseEvent('click',{clientX:t.clientX,clientY:t.clientY,bubbles:true}));
+    } else if(dt > 400 && moved < 15){
+      // Long-press = context menu
+      showContextMenu(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    } else if(Math.abs(e.changedTouches[0].clientX - touchStartX) > 60){
+      // Swipe left/right = next/prev condition
+      const dir = e.changedTouches[0].clientX < touchStartX ? 1 : -1;
+      cycleCondition(dir);
+    }
+  }
+},{ passive:false });
+
+// ============================================================
+//  COORDINATE HELPERS (handle pixel mode scaling)
+// ============================================================
+function toCanvasX(clientX){
+  const rect = canvas.getBoundingClientRect();
+  return (clientX - rect.left) / rect.width * canvas.width;
+}
+function toCanvasY(clientY){
+  const rect = canvas.getBoundingClientRect();
+  return (clientY - rect.top) / rect.height * canvas.height;
+}
+
+// ============================================================
+//  CLICK EFFECTS
+// ============================================================
+
+function spawnRainSplash(cx, cy){
+  // DOM ripple for smooth mode, dot-flash for pixel
+  const el = document.createElement('div');
+  el.style.cssText = \`position:absolute;left:\${cx-16}px;top:\${cy-16}px;width:32px;height:32px;pointer-events:none\`;
+  el.innerHTML = \`<svg width="32" height="32" viewBox="0 0 32 32">
+    <circle cx="16" cy="16" r="2" fill="none" stroke="rgba(100,180,255,.8)" stroke-width="1.5">
+      <animate attributeName="r" from="2" to="14" dur=".5s" fill="freeze"/>
+      <animate attributeName="stroke-opacity" from=".8" to="0" dur=".5s" fill="freeze"/>
+    </circle>
+    <circle cx="16" cy="16" r="2" fill="none" stroke="rgba(100,180,255,.5)" stroke-width="1">
+      <animate attributeName="r" from="2" to="10" begin=".1s" dur=".45s" fill="freeze"/>
+      <animate attributeName="stroke-opacity" from=".5" to="0" begin=".1s" dur=".45s" fill="freeze"/>
+    </circle>
+  </svg>\`;
+  fxDiv.appendChild(el);
+  setTimeout(()=>el.remove(), 600);
+
+  // Also add a few extra raindrops from click origin (canvas coords)
+  const cx2 = toCanvasX(cx), cy2 = toCanvasY(cy);
+  for(let i=0;i<6;i++){
+    const a=Math.random()*Math.PI*2, sp=Math.random()*3+1;
+    raindrops.push({x:cx2,y:cy2,vx:Math.cos(a)*sp*.5,vy:Math.sin(a)*sp+2,
+      len:6,alpha:.9,isHail:false});
+  }
+}
+
+function spawnSnowPuff(cx, cy){
+  const el = document.createElement('div');
+  el.className='snowpuff';
+  el.style.cssText=\`left:\${cx-10}px;top:\${cy-10}px\`;
+  el.textContent='❄';
+  fxDiv.appendChild(el);
+  setTimeout(()=>el.remove(), 800);
+
+  // Spawn extra snowflakes around click
+  const cx2=toCanvasX(cx), cy2=toCanvasY(cy);
+  for(let i=0;i<8;i++){
+    const a=Math.random()*Math.PI*2, r=Math.random()*20+5;
+    snowflakes.push({
+      x:cx2+Math.cos(a)*r, y:cy2+Math.sin(a)*r,
+      r:Math.random()*2.5+1, vy:(Math.random()*.6+.3)*SPD(),
+      vx:(Math.random()-.5)*.8,
+      wobble:Math.random()*Math.PI*2, wobbleSpd:.05, wobbleAmp:1.2,
+      angle:Math.random()*Math.PI*2, spin:(Math.random()-.5)*.06
+    });
+  }
+}
+
+function spawnFireflyBurst(cx, cy){
+  const count=8;
+  for(let i=0;i<count;i++){
+    const el=document.createElement('div');
+    el.className='ff-burst';
+    const a=(i/count)*Math.PI*2, r=30+Math.random()*20;
+    el.style.cssText=\`left:\${cx}px;top:\${cy}px;--tx:\${Math.cos(a)*r}px;--ty:\${Math.sin(a)*r}px;--d:\${.4+Math.random()*.4}s\`;
+    fxDiv.appendChild(el);
+    setTimeout(()=>el.remove(), 900);
+  }
+
+  // Add persistent fireflies near click
+  const cx2=toCanvasX(cx), cy2=toCanvasY(cy);
+  for(let i=0;i<5;i++){
+    fireflies.push({
+      x:cx2+(Math.random()-.5)*30, y:cy2+(Math.random()-.5)*20,
+      vx:(Math.random()-.5)*.7, vy:(Math.random()-.5)*.45,
+      alpha:Math.random(), aDir:1, aSpd:.04, r:1.5
+    });
+  }
+}
+
+function spawnSunSparkle(cx, cy){
+  const el=document.createElement('div');
+  el.style.cssText=\`position:absolute;left:\${cx-20}px;top:\${cy-20}px;width:40px;height:40px;pointer-events:none\`;
+  el.innerHTML=\`<svg width="40" height="40" viewBox="0 0 40 40">
+    \${[0,45,90,135].map(a=>{
+      const r1=a*Math.PI/180, r2=(a+180)*Math.PI/180;
+      const x1=20+Math.cos(r1)*5, y1=20+Math.sin(r1)*5;
+      const x2=20+Math.cos(r1)*18, y2=20+Math.sin(r1)*18;
+      const x3=20+Math.cos(r2)*5, y3=20+Math.sin(r2)*5;
+      const x4=20+Math.cos(r2)*18, y4=20+Math.sin(r2)*18;
+      return \`<line x1="\${x1}" y1="\${y1}" x2="\${x2}" y2="\${y2}" stroke="rgba(255,235,59,.9)" stroke-width="1.5" stroke-linecap="round">
+        <animate attributeName="stroke-opacity" from=".9" to="0" dur=".5s" fill="freeze"/>
+        <animate attributeName="x2" from="\${x2}" to="\${20+Math.cos(r1)*28}" dur=".4s" fill="freeze"/>
+        <animate attributeName="y2" from="\${y2}" to="\${20+Math.sin(r1)*28}" dur=".4s" fill="freeze"/>
+      </line>
+      <line x1="\${x3}" y1="\${y3}" x2="\${x4}" y2="\${y4}" stroke="rgba(255,235,59,.9)" stroke-width="1.5" stroke-linecap="round">
+        <animate attributeName="stroke-opacity" from=".9" to="0" dur=".5s" fill="freeze"/>
+      </line>\`;
+    }).join('')}
+  </svg>\`;
+  fxDiv.appendChild(el);
+  setTimeout(()=>el.remove(), 600);
+}
+
+function spawnLeafBurst(cx, cy){
+  const emojis=['🍂','🍁','🍃'];
+  for(let i=0;i<5;i++){
+    const el=document.createElement('div');
+    el.style.cssText=\`position:absolute;left:\${cx+(Math.random()-0.5)*30}px;top:\${cy}px;font-size:\${10+Math.random()*8}px;pointer-events:none;animation:puffUp \${.5+Math.random()*.3}s ease-out forwards\`;
+    el.textContent=emojis[Math.floor(Math.random()*emojis.length)];
+    fxDiv.appendChild(el);
+    setTimeout(()=>el.remove(), 900);
+  }
+}
+
+function clearFogAt(cx, cy){
+  // Remove fog particles near click
+  fogParticles=fogParticles.filter(f=>{
+    const dx=f.x+f.w/2-cx, dy=f.y+f.h/2-cy;
+    return Math.sqrt(dx*dx+dy*dy)>40;
+  });
+}
+
+function spawnClickSplash(cx, cy, type){
+  // Generic lightning bolt click flash
+  if(type==='lightning'){
+    const el=document.createElement('div');
+    el.style.cssText=\`position:absolute;left:\${cx-12}px;top:\${cy-12}px;font-size:24px;pointer-events:none;animation:puffUp .5s ease-out forwards\`;
+    el.textContent='⚡';
+    fxDiv.appendChild(el);
+    setTimeout(()=>el.remove(), 600);
+  }
+}
+
+// ============================================================
+//  MANUAL LIGHTNING TRIGGER
+// ============================================================
+function triggerManualLightning(cx, cy){
+  lightningFlash=1;
+  lightningBolts.push({segs:buildBolt(cx,0,cy),life:1.2});
+}
+
+// ============================================================
+//  SHOOTING STARS
+// ============================================================
+function spawnShootingStar(){
+  const sw=shootCanvas.width, sh=shootCanvas.height;
+  shootingStars.push({
+    x: Math.random()*sw*.7,
+    y: Math.random()*sh*.3,
+    vx: 5+Math.random()*4,
+    vy: 2+Math.random()*3,
+    trail:[],
+    life:1, maxLife:1
+  });
+}
+
+function updateShootingStars(){
+  shootCtx.clearRect(0,0,shootCanvas.width,shootCanvas.height);
+  shootingStars.forEach(s=>{
+    s.x+=s.vx; s.y+=s.vy;
+    s.trail.push({x:s.x,y:s.y});
+    if(s.trail.length>20) s.trail.shift();
+    s.life-=0.025;
+
+    // Draw trail
+    for(let i=1;i<s.trail.length;i++){
+      const t=i/s.trail.length;
+      shootCtx.globalAlpha=t*s.life*.9;
+      shootCtx.strokeStyle=\`rgba(255,250,200,\${t})\`;
+      shootCtx.lineWidth=1.5*t;
+      shootCtx.beginPath();
+      shootCtx.moveTo(s.trail[i-1].x,s.trail[i-1].y);
+      shootCtx.lineTo(s.trail[i].x,s.trail[i].y);
+      shootCtx.stroke();
+    }
+    // Head
+    shootCtx.globalAlpha=s.life;
+    shootCtx.fillStyle='#fff8c0';
+    shootCtx.beginPath();
+    shootCtx.arc(s.x,s.y,2,0,Math.PI*2);
+    shootCtx.fill();
+  });
+  shootCtx.globalAlpha=1;
+  shootingStars=shootingStars.filter(s=>s.life>0&&s.x<shootCanvas.width&&s.y<shootCanvas.height);
+}
+
+// ============================================================
+//  RAINBOW
+// ============================================================
+function drawRainbow(){
+  const w=rainbowCanvas.width, h=rainbowCanvas.height;
+  rainbowCtx.clearRect(0,0,w,h);
+  const cx=w/2, cy=h*1.2;
+  const radii=[h*.88,h*.83,h*.78,h*.73,h*.68,h*.63,h*.58];
+  const colors=['rgba(255,0,0,.18)','rgba(255,127,0,.18)','rgba(255,255,0,.18)',
+                'rgba(0,200,0,.18)','rgba(0,0,255,.18)','rgba(75,0,130,.15)','rgba(148,0,211,.12)'];
+  radii.forEach((r,i)=>{
+    rainbowCtx.beginPath();
+    rainbowCtx.arc(cx,cy,r,Math.PI,0);
+    rainbowCtx.strokeStyle=colors[i];
+    rainbowCtx.lineWidth=h*.045;
+    rainbowCtx.stroke();
+  });
+}
+
+function fadeOutRainbow(){
+  let a=1;
+  const fade=()=>{
+    a-=0.02;
+    rainbowCanvas.style.opacity=Math.max(0,a).toString();
+    if(a>0) requestAnimationFrame(fade);
+    else { rainbowCtx.clearRect(0,0,rainbowCanvas.width,rainbowCanvas.height); rainbowCanvas.style.opacity='0'; }
+  };
+  fade();
+}
+
+// ============================================================
+//  SUN FLARE
+// ============================================================
+function spawnSunFlare(cx, cy){
+  const el=document.createElement('div');
+  el.style.cssText=\`position:absolute;left:\${cx-60}px;top:\${cy-60}px;width:120px;height:120px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,240,100,.6) 0%,rgba(255,220,50,.2) 50%,transparent 100%);
+    pointer-events:none;animation:flareOut .8s ease-out forwards\`;
+  const style=document.createElement('style');
+  style.textContent='@keyframes flareOut{0%{opacity:1;transform:scale(.2)}100%{opacity:0;transform:scale(3)}}';
+  document.head.appendChild(style);
+  fxDiv.appendChild(el);
+  setTimeout(()=>{ el.remove(); style.remove(); }, 900);
+}
+
+// ============================================================
+//  WIND GUST
+// ============================================================
+function triggerWindGust(){
+  // Temporarily triple wind speed for leaves/smoke
+  const origSpeed=windSpeed;
+  windSpeed=origSpeed*3;
+  windgust.style.background='linear-gradient(90deg,transparent,rgba(200,230,255,.06),transparent)';
+  windgust.style.opacity='1';
+  windgust.style.animation='none';
+  // Spawn burst of leaves
+  for(let i=0;i<15;i++) spawnLeaf(true);
+  setTimeout(()=>{
+    windSpeed=origSpeed;
+    windgust.style.opacity='0';
+  }, 1500);
+}
+
+// ============================================================
+//  CONDITION CYCLE (swipe)
+// ============================================================
+const CONDITION_CYCLE=['clear','partly-cloudy','overcast','drizzle','rain','thunderstorm','snow','fog'];
+function cycleCondition(dir){
+  const idx=CONDITION_CYCLE.indexOf(condition);
+  const next=(idx+dir+CONDITION_CYCLE.length)%CONDITION_CYCLE.length;
+  applySimulate(CONDITION_CYCLE[next], !isDay);
+  flashConditionBanner('→ '+CONDITION_CYCLE[next].replace(/-/g,' '));
+}
+
+// ============================================================
+//  CONDITION BANNER
+// ============================================================
+let bannerTimeout=null;
+function flashConditionBanner(text){
+  let banner=document.getElementById('banner');
+  if(!banner){
+    banner=document.createElement('div');
+    banner.id='banner';
+    banner.style.cssText=\`position:absolute;top:12px;left:50%;transform:translateX(-50%);
+      background:rgba(0,0,0,.75);border:1px solid rgba(0,229,255,.3);color:#00e5ff;
+      font-size:11px;padding:5px 14px;border-radius:20px;pointer-events:none;
+      backdrop-filter:blur(6px);z-index:30;transition:opacity .4s;letter-spacing:.06em\`;
+    document.body.appendChild(banner);
+  }
+  banner.textContent=text;
+  banner.style.opacity='1';
+  clearTimeout(bannerTimeout);
+  bannerTimeout=setTimeout(()=>{ banner.style.opacity='0'; }, 1800);
+}
+
+// ============================================================
+//  TOOLTIP
+// ============================================================
+function showTooltip(){
+  if(!weatherData||CFG.hideHUD) return;
+  const ct=condition.replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase());
+  const t=fmtT(temperature), w=fmtW(windSpeed), p=fmtP(precipitation);
+  const wd=Math.round(windDirection)+'°';
+  const moonStr=moonPhase<.15?'🌑 New':moonPhase<.35?'🌒 Crescent':moonPhase<.65?'🌕 Full':moonPhase<.85?'🌖 Gibbous':'🌘 Crescent';
+  tooltip.innerHTML=\`
+    <div class="tt-title">\${ct}</div>
+    <div class="tt-row"><span class="tt-key">Temp</span><span class="tt-val">\${t}</span></div>
+    <div class="tt-row"><span class="tt-key">Wind</span><span class="tt-val">\${w} \${wd}</span></div>
+    <div class="tt-row"><span class="tt-key">Precip</span><span class="tt-val">\${p}</span></div>
+    \${!isDay?'<div class="tt-row"><span class="tt-key">Moon</span><span class="tt-val">'+moonStr+'</span></div>':''}
+    <div class="tt-row" style="margin-top:4px;opacity:.45;font-size:9px"><span>Click · Drag · Scroll · ✦</span></div>
+  \`;
+  tooltip.classList.add('vis');
+}
+
+function updateTooltipPosition(cx, cy){
+  const pad=14, tw=tooltip.offsetWidth||160, th=tooltip.offsetHeight||80;
+  let tx=cx+pad, ty=cy+pad;
+  if(tx+tw>window.innerWidth-10) tx=cx-tw-pad;
+  if(ty+th>window.innerHeight-35) ty=cy-th-pad;
+  tooltip.style.left=tx+'px'; tooltip.style.top=ty+'px';
+}
+
+// ============================================================
+//  WIND ROSE
+// ============================================================
+function updateWindRose(){
+  const a=windDirection*Math.PI/180;
+  const cx=18,cy=18,r=12;
+  const nx=cx+Math.sin(a)*r, ny=cy-Math.cos(a)*r;
+  windrose.innerHTML=\`
+    <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(0,229,255,.2)" stroke-width="1"/>
+    <circle cx="18" cy="18" r="2" fill="rgba(0,229,255,.5)"/>
+    <line x1="18" y1="18" x2="\${nx}" y2="\${ny}" stroke="#00e5ff" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="18" y="5" fill="rgba(0,229,255,.5)" font-size="5" text-anchor="middle" font-family="monospace">N</text>
+    <text x="31" y="20" fill="rgba(0,229,255,.35)" font-size="4.5" text-anchor="middle" font-family="monospace">E</text>
+    <text x="18" y="34" fill="rgba(0,229,255,.35)" font-size="4.5" text-anchor="middle" font-family="monospace">S</text>
+    <text x="5" y="20" fill="rgba(0,229,255,.35)" font-size="4.5" text-anchor="middle" font-family="monospace">W</text>
+  \`;
+}
+
+// ============================================================
+//  CONTEXT MENU
+// ============================================================
+function showContextMenu(cx, cy){
+  const items=[
+    { header:'Simulate' },
+    { icon:'☀️', label:'Clear Day',      action:()=>applySimulate('clear',false) },
+    { icon:'🌙', label:'Clear Night',    action:()=>applySimulate('clear',true) },
+    { icon:'⛅', label:'Partly Cloudy', action:()=>applySimulate('partly-cloudy',!isDay) },
+    { icon:'🌧', label:'Rain',           action:()=>applySimulate('rain',!isDay) },
+    { icon:'⛈', label:'Thunderstorm',  action:()=>applySimulate('thunderstorm',!isDay) },
+    { icon:'❄️', label:'Snow',           action:()=>applySimulate('snow',!isDay) },
+    { icon:'🌫', label:'Fog',            action:()=>applySimulate('fog',!isDay) },
+    { sep:true },
+    { header:'Toggle' },
+    { icon:'🌙', label:'Day / Night',    check:!isDay, action:()=>{ isDay=!isDay; initScene(); if(CFG.pixelMode) px_initParticles(); updateHUD(); updateControlStates(); } },
+    { icon:'🕹', label:'Pixel Mode',     check:CFG.pixelMode, action:()=>{ CFG.pixelMode=!CFG.pixelMode; resize(); if(weatherData){initScene();if(CFG.pixelMode)px_initParticles();} updateHUD(); updateControlStates(); } },
+    { icon:'🍂', label:'Falling Leaves', check:CFG.showLeaves, action:()=>{ CFG.showLeaves=!CFG.showLeaves; if(!CFG.showLeaves)leaves=[]; updateControlStates(); } },
+    { sep:true },
+    { icon:'🔄', label:'Refresh Weather',action:()=> fetchWeather().catch(offlineWeather) },
+  ];
+
+  ctxmenu.innerHTML='';
+  items.forEach(item=>{
+    if(item.sep){ const sep=document.createElement('div'); sep.className='ctx-sep'; ctxmenu.appendChild(sep); return; }
+    if(item.header){ const h=document.createElement('div'); h.className='ctx-header'; h.textContent=item.header; ctxmenu.appendChild(h); return; }
+    const el=document.createElement('div');
+    el.className='ctx-item';
+    el.innerHTML=\`<span class="ctx-icon">\${item.icon}</span><span>\${item.label}</span>\${item.check!==undefined?'<span class="ctx-check '+(item.check?'on':'')+'">'+(item.check?'✓':'')+'</span>':''}\`;
+    el.addEventListener('click', ()=>{ item.action(); hideContextMenu(); });
+    ctxmenu.appendChild(el);
+  });
+
+  ctxmenu.style.display='block';
+  const menuW=ctxmenu.offsetWidth||170, menuH=ctxmenu.offsetHeight||300;
+  let mx=cx+2, my=cy+2;
+  if(mx+menuW>window.innerWidth-6) mx=cx-menuW-2;
+  if(my+menuH>window.innerHeight-6) my=cy-menuH-2;
+  ctxmenu.style.left=mx+'px'; ctxmenu.style.top=my+'px';
+}
+
+function hideContextMenu(){ ctxmenu.style.display='none'; }
+document.addEventListener('click', ()=> hideContextMenu());
+
+// ============================================================
 //  SCENE INIT
 // ============================================================
 function initScene(){
   raindrops=[]; snowflakes=[]; clouds=[]; stars=[];
   fireflies=[]; birds=[]; planes=[]; fogParticles=[];
   leaves=[]; smoke=[]; lightningBolts=[];
+  shootingStars=[];
 
   if(!isDay){
     for(let i=0;i<140;i++) stars.push({
@@ -144,7 +928,7 @@ function initScene(){
     spawnPlane();
   }
 
-  if(!isDay && (condition==='clear'||condition==='partly-cloudy') && temperature>15){
+  if(!isDay&&temperature>10 && (condition==='clear'||condition==='partly-cloudy')){
     for(let i=0;i<22;i++) spawnFirefly();
   }
 
@@ -153,6 +937,8 @@ function initScene(){
   }
 
   buildTrees();
+  updateWindRose();
+  updateControlStates();
 }
 
 // ============================================================
@@ -162,7 +948,7 @@ const TREE_SPECIES=['pine','round','tall','birch','spruce'];
 function buildTrees(){
   treeLayout=[];
   const hy=HY();
-  const W =canvas.width;
+  const W=canvas.width;
 
   const farCount=Math.max(6, Math.floor(W/55));
   for(let i=0;i<farCount;i++){
@@ -179,9 +965,6 @@ function buildTrees(){
 
   const midCount=Math.max(8, Math.floor(W/45));
   for(let i=0;i<midCount;i++){
-    // BUG FIX: original always picked from just 2 candidate x values then
-    // chose randomly, producing clustered mid trees. Now we properly space them
-    // in the left and right bands excluding the house centre (35%–65%).
     const leftBand  = W * 0.33;
     const rightStart= W * 0.67;
     const rightBand = W - rightStart;
@@ -387,9 +1170,6 @@ function drawMoon(){
   ctx.fillStyle=gw; ctx.beginPath(); ctx.arc(0,0,R*3.2,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#fff8e1'; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
   const sx=R*.38*(moonPhase>.5?1:-1);
-  // BUG FIX: shadow colour was '#42a5f5' (sky blue) during day – but drawMoon()
-  // is guarded by isDay check, so it only ever runs at night. The sky at night
-  // is very dark (#080820). Hard-code to night colour and remove dead branch.
   ctx.fillStyle='#080820';
   ctx.beginPath(); ctx.arc(sx,0,R*.82,0,Math.PI*2); ctx.fill();
   ctx.restore();
@@ -728,11 +1508,6 @@ function updateAndDrawThunder(){
     ctx.strokeStyle='#c8dcff'; ctx.lineWidth=2;
     ctx.shadowColor='#7eaaff'; ctx.shadowBlur=14;
     ctx.beginPath();
-    // BUG FIX: original only moved to the first segment's x1/y1 inside the
-    // forEach — the moveTo was never executed for i>0 because the ternary
-    // returned void 0 (a no-op expression), never actually calling moveTo
-    // for the first segment and then drawing lineTo from 0,0 for the rest.
-    // Fixed: separate the initial moveTo from the lineTo loop.
     b.segs.forEach((s,i)=>{
       if(i===0) ctx.moveTo(s.x1,s.y1);
       ctx.lineTo(s.x2,s.y2);
@@ -741,6 +1516,7 @@ function updateAndDrawThunder(){
     ctx.restore();
   });
 }
+
 function buildBolt(x,ys,ye){
   const segs=[];let cx=x,cy=ys;
   while(cy<ye){
@@ -826,7 +1602,7 @@ function updateAndDrawBirds(){
 //  FIREFLIES
 // ============================================================
 function updateAndDrawFireflies(){
-  if(isDay||temperature<=15) return;
+  if(isDay) return;
   fireflies.forEach(f=>{
     f.x+=f.vx; f.y+=f.vy;
     f.alpha+=f.aSpd*f.aDir;
@@ -860,15 +1636,16 @@ function updateHUD(){
     loc=\`<span>📍 \${la}, \${lo}</span>\`;
   }
   const off=isOffline?'<span class="offline">OFFLINE</span>':'';
-  hud.innerHTML=\`\${off}<span>🌤 \${ct}</span><span>🌡 \${t}</span><span>💨 \${w}</span><span>🌧 \${p}</span>\${loc}\`;
+  // Interactive hint in HUD
+  const hint='<span style="opacity:.3;font-size:9px;float:right">hover · click · drag · scroll · ?</span>';
+  hud.innerHTML=\`\${off}<span>🌤 \${ct}</span><span>🌡 \${t}</span><span>💨 \${w}</span><span>🌧 \${p}</span>\${loc}\${hint}\`;
 }
 const fmtT=v=>CFG.temperatureUnit==='fahrenheit'?(v*9/5+32).toFixed(1)+'°F':v.toFixed(1)+'°C';
-const fmtW=v=>{ let r=v,u='km/h'; if(CFG.windSpeedUnit==='ms'){r=v/3.6;u='m/s';}else if(CFG.windSpeedUnit==='mph'){r=v*.621;u='mph';}else if(CFG.windSpeedUnit==='kn'){r=v*.54;u='kn';} return r.toFixed(1)+' '+u; };
+const fmtW=v=>{ let r=v,u='km/h'; if(CFG.windSpeedUnit==='ms'){r=v/3.6;u='m/s';}else if(CFG.windSpeedUnit==='mph'){r=v/1.609;u='mph';}else if(CFG.windSpeedUnit==='kn'){r=v*.54;u='kn';} return r.toFixed(1)+' '+u; };
 const fmtP=v=>CFG.precipitationUnit==='inch'?(v/25.4).toFixed(2)+'"':v.toFixed(1)+'mm';
 
-
 // ============================================================
-//  HEX COLOUR HELPERS (for pixel mode sky gradient)
+//  HEX COLOUR HELPERS
 // ============================================================
 function hexR(h){ return parseInt(h.slice(1,3),16); }
 function hexG(h){ return parseInt(h.slice(3,5),16); }
@@ -879,12 +1656,8 @@ function lerp(a,b,t){ return a+(b-a)*t; }
 //  PIXEL MODE – Particle Init
 // ============================================================
 function px_initParticles(){
-  // Re-populate particle arrays for pixel-mode coordinate space (300×100).
-  // initScene() already ran with pixel canvas dims, but counts & sizes need
-  // tuning for the low-res grid.
   const W=canvas.width, H=canvas.height, hy=Math.floor(HY());
 
-  // Stars
   stars=[];
   if(!isDay){
     const count=Math.floor(W*hy/120);
@@ -895,7 +1668,6 @@ function px_initParticles(){
     });
   }
 
-  // Clouds
   clouds=[];
   const nc=condition==='clear'?1:condition==='partly-cloudy'?3:condition==='overcast'?6:4;
   for(let i=0;i<nc;i++) clouds.push({
@@ -907,7 +1679,6 @@ function px_initParticles(){
     alpha:1
   });
 
-  // Rain
   raindrops=[];
   if(isRaining()){
     const n=condition==='drizzle'?Math.floor(W/15):isStorm()?Math.floor(W/5):Math.floor(W/8);
@@ -921,7 +1692,6 @@ function px_initParticles(){
     });
   }
 
-  // Snow
   snowflakes=[];
   if(isSnowing()){
     const n=condition==='snow-grains'?Math.floor(W/15):Math.floor(W/8);
@@ -936,7 +1706,6 @@ function px_initParticles(){
     });
   }
 
-  // Fog
   fogParticles=[];
   if(condition==='fog'){
     for(let i=0;i<15;i++) fogParticles.push({
@@ -947,9 +1716,8 @@ function px_initParticles(){
     });
   }
 
-  // Fireflies
   fireflies=[];
-  if(!isDay&&temperature>15&&(condition==='clear'||condition==='partly-cloudy')){
+  if(!isDay&&temperature>10&&(condition==='clear'||condition==='partly-cloudy')){
     const fc=Math.max(3,Math.floor(W/40));
     for(let i=0;i<fc;i++) fireflies.push({
       x:Math.random()*W,
@@ -963,7 +1731,6 @@ function px_initParticles(){
     });
   }
 
-  // Leaves
   leaves=[];
   if(CFG.showLeaves&&!isRaining()&&!isSnowing()){
     const lc=Math.max(5,Math.floor(W/40));
@@ -978,11 +1745,9 @@ function px_initParticles(){
     });
   }
 
-
-  // Smoke, lightning
   smoke=[]; lightningBolts=[]; lightningFlash=0;
 
-  // Trees – pixel-proportioned
+  // Pixel-proportioned trees
   treeLayout=[];
   const farCount=Math.max(3,Math.floor(W/70));
   for(let i=0;i<farCount;i++){
@@ -990,7 +1755,7 @@ function px_initParticles(){
       layer:0,
       x:(i+Math.random()*.6)*W/farCount+Math.random()*4-2,
       baseY:hy-1,
-      h:Math.random()*7+5, w:Math.random()*4+3,
+      h:Math.random()*12+9, w:Math.random()*7+5,
       species:TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
       alpha:Math.random()*.2+.15
     });
@@ -1001,7 +1766,7 @@ function px_initParticles(){
     const x=Math.random()<.5?Math.random()*lb:rs+Math.random()*(W-rs);
     treeLayout.push({
       layer:1, x, baseY:hy-1,
-      h:Math.random()*10+6, w:Math.random()*6+3,
+      h:Math.random()*18+12, w:Math.random()*10+6,
       species:TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
       alpha:Math.random()*.2+.55
     });
@@ -1013,7 +1778,7 @@ function px_initParticles(){
   nearX.forEach(x=>{
     treeLayout.push({
       layer:2, x, baseY:hy,
-      h:Math.random()*12+9, w:Math.random()*7+5,
+      h:Math.random()*22+18, w:Math.random()*12+8,
       species:TREE_SPECIES[Math.floor(Math.random()*TREE_SPECIES.length)],
       alpha:1
     });
@@ -1028,24 +1793,20 @@ function renderPixelMode(){
   updatePhysics();
   const W=canvas.width, H=canvas.height, hy=Math.floor(HY());
 
-  // --- Background ---
   px_sky(W,H);
   if(!isDay){ px_stars(); px_moon(W); }
   if(isDay&&!isRaining()&&!isSnowing()&&condition!=='fog'&&condition!=='overcast') px_sun(W);
   px_clouds();
   if(isDay&&!isRaining()&&!isSnowing()&&condition!=='fog') px_birds();
   if(isDay&&(condition==='clear'||condition==='partly-cloudy')) px_planes();
-  if(!isDay&&temperature>15) px_fireflies();
+  if(!isDay) px_fireflies();
 
-  // --- Scene ---
   px_ground(W,H,hy);
   px_trees(hy);
   px_house(W,hy);
 
-  // --- Chimney smoke ---
   if(!isRaining()&&!isStorm()) px_smoke();
 
-  // --- Foreground ---
   if(isStorm()){ px_rain(); px_lightning(W,H); }
   else if(isRaining()) px_rain();
   else if(isSnowing()) px_snow();
@@ -1055,9 +1816,10 @@ function renderPixelMode(){
   updateHUD();
 }
 
-// ----- Pixel-mode draw helpers -----
+// ============================================================
+//  PIXEL DRAW HELPERS
+// ============================================================
 
-// Sky gradient
 function px_sky(W,H){
   let t0,t1;
   if(!isDay)                                      { t0='#010210'; t1='#0b0b26'; }
@@ -1076,7 +1838,6 @@ function px_sky(W,H){
   }
 }
 
-// Stars
 function px_stars(){
   stars.forEach(s=>{
     ctx.globalAlpha=s.a;
@@ -1086,10 +1847,8 @@ function px_stars(){
   ctx.globalAlpha=1;
 }
 
-// Moon
 function px_moon(W){
   const mx=Math.floor(W*.78), my=Math.floor(canvas.height*.12), R=3;
-  // Moon body
   ctx.fillStyle='#fff8e1';
   for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
     if(dx*dx+dy*dy<=R*R) ctx.fillRect(mx+dx,my+dy,1,1);
@@ -1102,10 +1861,8 @@ function px_moon(W){
   }
 }
 
-// Sun
 function px_sun(W){
   const sx=Math.floor(W*.82), sy=Math.floor(canvas.height*.1), R=3;
-  // Body
   ctx.fillStyle='#ffeb3b';
   for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
     if(dx*dx+dy*dy<=R*R) ctx.fillRect(sx+dx,sy+dy,1,1);
@@ -1113,12 +1870,10 @@ function px_sun(W){
   const p=Math.floor(frame/15)%2;
   ctx.fillStyle='rgba(255,235,59,.7)';
   const rl=R+1+p;
-  // Cardinal rays
   for(let i=R+1;i<=rl;i++){
     ctx.fillRect(sx+i,sy,1,1); ctx.fillRect(sx-i,sy,1,1);
     ctx.fillRect(sx,sy+i,1,1); ctx.fillRect(sx,sy-i,1,1);
   }
-  // Diagonal rays
   for(let i=1;i<=rl-R;i++){
     const d=R+i;
     const diag=Math.round(d*.71);
@@ -1127,7 +1882,6 @@ function px_sun(W){
   }
 }
 
-// Clouds
 function px_clouds(){
   clouds.forEach(c=>{
     ctx.fillStyle=!isDay?'#23233a':isStorm()||isRaining()?'#546e7a':'#eceff1';
@@ -1135,7 +1889,6 @@ function px_clouds(){
     const hw=Math.min(Math.floor(c.w/2),10);
     const hh=Math.min(Math.floor(c.h/2),3);
     if(hw<1||hh<1) return;
-    // Main body ellipse
     for(let dy=-hh;dy<=hh;dy++) for(let dx=-hw;dx<=hw;dx++){
       if((dx*dx)/(hw*hw)+(dy*dy)/(hh*hh)<=1) ctx.fillRect(cx_+dx,cy_+dy,1,1);
     }
@@ -1148,7 +1901,6 @@ function px_clouds(){
   });
 }
 
-// Birds
 function px_birds(){
   birds.forEach(b=>{
     const bx=Math.floor(b.x), by=Math.floor(b.y);
@@ -1161,12 +1913,10 @@ function px_birds(){
   });
 }
 
-// Airplane
 function px_planes(){
   planes.forEach(p=>{
     const px_=Math.floor(p.x), py_=Math.floor(p.y);
     if(px_<0||py_<0) return;
-    // Contrail
     ctx.fillStyle='rgba(220,240,255,.4)';
     for(let i=1;i<=Math.min(8,px_);i++) ctx.fillRect(px_-i,py_,1,1);
     ctx.fillStyle='#eceff1';
@@ -1176,7 +1926,6 @@ function px_planes(){
   });
 }
 
-// Fireflies
 function px_fireflies(){
   fireflies.forEach(f=>{
     const fx=Math.floor(f.x), fy=Math.floor(f.y);
@@ -1189,10 +1938,8 @@ function px_fireflies(){
   ctx.globalAlpha=1;
 }
 
-// Ground
 function px_ground(W,H,hy){
   const groundH=H-hy;
-  // Snow-covered variant
   if(isSnowing()||condition==='snow-grains'||temperature<-2){
     ctx.fillStyle=isDay?'#e3f2fd':'#bbdefb';
     ctx.fillRect(0,hy,W,1);
@@ -1200,10 +1947,8 @@ function px_ground(W,H,hy){
     ctx.fillRect(0,hy+1,W,groundH-1);
     return;
   }
-  // Soil base
   ctx.fillStyle=isDay?'#036510':'#023107';
   ctx.fillRect(0,hy+1,W,groundH-1);
-  // Top grass row pixel-by-pixel
   const grass=isDay?['#388e3c','#2e7d32']:['#1b5e20','#003200'];
   const flowers=isDay?['#e91e63','#f44336','#00bcd4','#ffeb3b']:['#880e4f','#b71c1c','#1565c0','#f9a825'];
   for(let x=0;x<W;x++){
@@ -1211,7 +1956,6 @@ function px_ground(W,H,hy){
     ctx.fillStyle=r<5?flowers[x%flowers.length]:r<15?grass[1]:grass[0];
     ctx.fillRect(x,hy,1,1);
   }
-  // Sparse soil texture
   ctx.fillStyle=isDay?'#795548':'#4e342e';
   for(let y=1;y<Math.min(groundH,6);y++){
     for(let x=0;x<W;x+=3){
@@ -1220,7 +1964,6 @@ function px_ground(W,H,hy){
   }
 }
 
-// Trees
 function px_trees(hy){
   treeLayout.forEach(t=>{
     const tx=Math.floor(t.x), tby=Math.floor(t.baseY);
@@ -1231,7 +1974,6 @@ function px_trees(hy){
     const trH=Math.max(1,Math.floor(th*.3));
     ctx.fillStyle=isDay?'#5d3f23':'#322112';
     ctx.fillRect(tx-Math.floor(trunkW/2),tby-trH,trunkW,trH);
-    // Canopy
     const cy=tby-trH;
     ctx.fillStyle=isDay?'#2e7d32':'#1b3e20';
     if(t.species==='pine'||t.species==='spruce'){
@@ -1246,7 +1988,6 @@ function px_trees(hy){
         if(dx*dx+dy*dy<=cr*cr) ctx.fillRect(tx+dx,cy-cr+dy,1,1);
       }
     }
-    // Snow cap
     if(isSnowing()){
       ctx.fillStyle='rgba(230,245,255,.75)';
       const cw=Math.max(1,Math.floor(tw*.5));
@@ -1256,7 +1997,6 @@ function px_trees(hy){
   ctx.globalAlpha=1;
 }
 
-// House
 function px_house(W,hy){
   const scale=1.4;
   const hw=24*scale, hh=12*scale, hx=Math.floor(W/2-hw/2), wy=hy-hh;
@@ -1264,23 +2004,19 @@ function px_house(W,hy){
   const wallC=isDay?'#d7b991':'#5f412d';
   const winC =isDay?'#80deea':isStorm()?'#ffd54f':'#fff176';
 
-  // Chimney
+  // Chimney — positioned relative to pixel house, not smooth canvas
   ctx.fillStyle='#4e342e';
-  ctx.fillRect(hx+6*scale,wy-12*scale,3*scale,7*scale);
+  ctx.fillRect(hx+Math.floor(hw*.25), wy-Math.floor(hh*.9), Math.max(2,Math.floor(scale*3)), Math.floor(hh*.6));
 
-
-  // Walls
   ctx.fillStyle=wallC;
   ctx.fillRect(hx,wy,hw,hh);
 
-  // Roof trapezoid
   ctx.fillStyle=roofC;
   for(let r=0;r<7;r++){
     const rw=Math.floor((hw+9)-(6-r)*2.4*scale);
     ctx.fillRect(hx+Math.floor(hw/2)-Math.floor(rw/2),wy-5*scale+r,rw,1);
   }
 
-  // Windows
   if(!isDay||isStorm()){
     ctx.globalAlpha=.25; ctx.fillStyle=winC;
     ctx.fillRect(hx+4*scale,wy+2*scale,5*scale,5*scale); ctx.fillRect(hx+11*scale,wy+2*scale,5*scale,5*scale);
@@ -1294,32 +2030,39 @@ function px_house(W,hy){
   ctx.fillRect(hx+hw-15*scale,wy+3*scale,3*scale,3*scale);
   ctx.fillRect(hx+hw-8*scale,wy+3*scale,3*scale,3*scale);
 
-  // Door
   const dx=hx+Math.floor(hw/2)-2*scale;
   ctx.fillStyle='#5d4037'; ctx.fillRect(dx,wy+hh-6*scale,4*scale,6*scale);
-  ctx.fillStyle='#ffd54f'; ctx.fillRect(dx+3*scale,wy+hh-4*scale,1,1); // knob
+  ctx.fillStyle='#ffd54f'; ctx.fillRect(dx+3*scale,wy+hh-4*scale,1,1);
 
-  // Path
   ctx.fillStyle=isDay?'#9e9e9e':'#616161';
   ctx.fillRect(dx-1,hy,6*scale,3*scale);
 
-  // Fences
+  // Clamp fence extents to canvas width to prevent overflow on narrow pixel canvas
+  const fenceL=Math.max(0, hx-Math.floor(21*scale));
+  const fenceR=Math.min(W-1, hx+hw+Math.floor(24*scale));
   ctx.fillStyle=isDay?'#e6c96a':'#8d6e63';
-  for(let i=0;i<7;i++) ctx.fillRect(hx-21*scale+i*3*scale,hy-4*scale,1,4*scale);
-  ctx.fillRect(hx-21*scale,hy-3*scale,21*scale,1);
-  for(let i=0;i<7;i++) ctx.fillRect(hx+hw+3*scale+i*3*scale,hy-4*scale,1,4*scale);
-  ctx.fillRect(hx+hw+2*scale,hy-3*scale,21*scale,1);
-
-  const mbx=hx-24*scale;
-  if(mbx>0){
-    ctx.fillStyle=isDay?'#1565c0':'#0d47a1';
-    ctx.fillRect(mbx,hy-4*scale,3*scale,2*scale);
-    ctx.fillRect(mbx+1,hy-2*scale,1,2*scale);
+  for(let i=0;i<7;i++){
+    const fx=hx-Math.floor(21*scale)+i*Math.floor(3*scale);
+    if(fx>=0&&fx<W) ctx.fillRect(fx,hy-Math.floor(4*scale),1,Math.floor(4*scale));
   }
+  if(fenceL<hx) ctx.fillRect(fenceL,hy-Math.floor(3*scale),hx-fenceL,1);
+  for(let i=0;i<7;i++){
+    const fx=hx+hw+Math.floor(3*scale)+i*Math.floor(3*scale);
+    if(fx>=0&&fx<W) ctx.fillRect(fx,hy-Math.floor(4*scale),1,Math.floor(4*scale));
+  }
+  if(hx+hw<fenceR) ctx.fillRect(hx+hw,hy-Math.floor(3*scale),fenceR-(hx+hw),1);
 }
 
-// Chimney smoke
 function px_smoke(){
+  // Correct chimney position for pixel canvas
+  const scale=1.4;
+  const hw=24*scale;
+  const hx=Math.floor(canvas.width/2-hw/2);
+  const hy=Math.floor(HY());
+  const hh=12*scale;
+  const chimneyX=hx+Math.floor(hw*.25)+Math.floor(Math.max(2,Math.floor(scale*3))/2);
+  const chimneyY=hy-hh-Math.floor(hh*.9);  // matches px_house: wy - floor(hh*.9)
+
   smoke.forEach(s=>{
     const sx=Math.floor(s.x), sy=Math.floor(s.y);
     if(sx<0||sy<0||sx>=canvas.width||sy>=canvas.height) return;
@@ -1328,9 +2071,12 @@ function px_smoke(){
     ctx.fillRect(sx,sy,1,1);
   });
   ctx.globalAlpha=1;
+
+  if(Math.random()<.07){
+    spawnSmoke(chimneyX, chimneyY);
+  }
 }
 
-// Rain
 function px_rain(){
   raindrops.forEach(d=>{
     const rx=Math.floor(d.x), ry=Math.floor(d.y);
@@ -1345,7 +2091,6 @@ function px_rain(){
   });
 }
 
-// Snow
 function px_snow(){
   snowflakes.forEach(sf=>{
     const sx=Math.floor(sf.x), sy=Math.floor(sf.y);
@@ -1354,7 +2099,6 @@ function px_snow(){
   });
 }
 
-// Lightning
 function px_lightning(W,H){
   if(lightningFlash>.04){
     ctx.globalAlpha=lightningFlash*.18;
@@ -1364,7 +2108,6 @@ function px_lightning(W,H){
   lightningBolts.forEach(b=>{
     ctx.globalAlpha=b.life; ctx.fillStyle='#c8dcff';
     b.segs.forEach(s=>{
-      // Bresenham-like pixel line
       const sdx=s.x2-s.x1, sdy=s.y2-s.y1;
       const steps=Math.max(Math.abs(sdx|0),Math.abs(sdy|0),1);
       for(let i=0;i<=steps;i++){
@@ -1376,7 +2119,6 @@ function px_lightning(W,H){
   ctx.globalAlpha=1;
 }
 
-// Fog
 function px_fog(W){
   fogParticles.forEach(f=>{
     ctx.globalAlpha=f.alpha; ctx.fillStyle='#b0bec5';
@@ -1390,7 +2132,6 @@ function px_fog(W){
   ctx.globalAlpha=1;
 }
 
-// Leaves
 function px_leaves(){
   leaves.forEach(l=>{
     const lx=Math.floor(l.x), ly=Math.floor(l.y);
@@ -1407,9 +2148,7 @@ const WMO={0:'clear',1:'clear',2:'partly-cloudy',3:'overcast',45:'fog',48:'fog',
 async function fetchWeather(){
   let lat=CFG.latitude, lon=CFG.longitude;
 
-  // Handle location based on mode
   if(CFG.locationMode==='manual' && CFG.manualLocation){
-    // Geocode manual location (town name or postcode)
     try{
       const geocodeUrl=\`https://nominatim.openstreetmap.org/search?q=\${encodeURIComponent(CFG.manualLocation)}&format=json&limit=1\`;
       const gRes=await fetch(geocodeUrl);
@@ -1420,11 +2159,8 @@ async function fetchWeather(){
         CFG.latitude=lat;
         CFG.longitude=lon;
       }
-    }catch(e){
-      console.error('Geocoding failed:', e);
-    }
+    }catch(e){ console.error('Geocoding failed:', e); }
   } else if(CFG.autoLocation){
-    // Auto-detect location from IP
     try{
       const g=await fetch('https://ipinfo.io/json').then(r=>r.json());
       if(g&&g.loc){const pts=g.loc.split(',');lat=parseFloat(pts[0]);lon=parseFloat(pts[1]);CFG.latitude=lat;CFG.longitude=lon;}
@@ -1470,7 +2206,6 @@ function loop(){
   const ch = canvas.offsetHeight || canvas.clientHeight || 0;
   if(cw < 2 || ch < 2){ requestAnimationFrame(loop); return; }
 
-  // Handle pixelMode toggle (resize + scene rebuild)
   if(CFG.pixelMode !== _lastPixelMode){
     _lastPixelMode = CFG.pixelMode;
     resize();
@@ -1482,7 +2217,6 @@ function loop(){
   }
 
   if(CFG.pixelMode){
-    // Detect viewport aspect-ratio changes and resize the pixel buffer
     const cssW = canvas.offsetWidth  || canvas.clientWidth  || 0;
     const cssH = canvas.offsetHeight || canvas.clientHeight || 0;
     const needW = Math.max(80, Math.round(PIXEL_H * (cssW / (cssH||1))));
@@ -1493,11 +2227,9 @@ function loop(){
       if(weatherData){ initScene(); px_initParticles(); }
     }
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    // Stars still need twinkle update (shared array, pixel coords already correct)
-    if(!isDay) stars.forEach(s=>{
-      s.a+=s.spd*(s.a>.9?-1:s.a<.15?1:(Math.random()>.5?1:-1));
-      s.a=Math.max(.1,Math.min(1,s.a));
-    });
+    // Stars twinkle — only once per frame (updatePhysics handles the rest)
+    // Note: updatePhysics() is called inside renderPixelMode → do NOT also
+    //       twinkle stars here to avoid the double-update bug.
     renderPixelMode();
   } else {
     if(cw !== _lastW || ch !== _lastH){
@@ -1509,19 +2241,19 @@ function loop(){
     drawScene();
   }
 
+  // Overlay effects (always in screen-space)
+  updateShootingStars();
+
   requestAnimationFrame(loop);
 }
 
-// Physics-only update (no drawing) — used by pixel mode so particles
-// still move correctly through the low-res coordinate space.
+// Physics-only update — used by pixel mode
 function updatePhysics(){
-  // clouds
   clouds.forEach(c=>{ c.x+=c.spd; });
   clouds=clouds.filter(c=>c.x<canvas.width+250);
   const maxC=condition==='clear'?2:condition==='partly-cloudy'?5:9;
   while(clouds.length<maxC) spawnCloud();
 
-  // rain
   if(isRaining()){
     const target=condition==='drizzle'?20:isStorm()?60:40;
     while(raindrops.length<target) spawnDrop(false);
@@ -1529,7 +2261,6 @@ function updatePhysics(){
     raindrops=raindrops.filter(d=>d.y<HY()+25&&d.x>-10&&d.x<canvas.width+10);
   }
 
-  // snow
   if(isSnowing()){
     const target=condition==='snow-grains'?20:40;
     while(snowflakes.length<target) spawnFlake(false);
@@ -1541,7 +2272,6 @@ function updatePhysics(){
     snowflakes=snowflakes.filter(s=>s.y<HY()+5);
   }
 
-  // lightning
   if(isStorm()){
     lightningFlash=Math.max(0,lightningFlash-.04);
     if(frame>=nextLightFrame){
@@ -1553,8 +2283,7 @@ function updatePhysics(){
     lightningBolts=lightningBolts.filter(b=>b.life>0);
   }
 
-  // fireflies
-  if(!isDay && temperature>15){
+  if(!isDay && fireflies.length > 0){
     fireflies.forEach(f=>{
       f.x+=f.vx; f.y+=f.vy;
       f.alpha+=f.aSpd*f.aDir;
@@ -1564,15 +2293,10 @@ function updatePhysics(){
     });
   }
 
-  // smoke
   smoke.forEach(s=>{ s.x+=s.vx; s.y+=s.vy; s.r+=.18; s.alpha-=.009; s.life-=.012; });
   smoke=smoke.filter(s=>s.life>0&&s.alpha>0);
-  if(!isRaining()&&!isStorm()&&Math.random()<.07){
-    const cx2=canvas.width/2-12+5+3;
-    spawnSmoke(cx2, HY()-16-11);
-  }
+  // Note: pixel-mode smoke spawning is handled inside px_smoke() with correct coords.
 
-  // leaves
   if(CFG.showLeaves && !isRaining() && !isSnowing()){
     const target=10;
     while(leaves.length<target) spawnLeaf(false);
@@ -1585,7 +2309,6 @@ function updatePhysics(){
     while(leaves.length<target) spawnLeaf(false);
   }
 
-  // birds
   if(isDay&&!isRaining()&&!isSnowing()){
     birds.forEach(b=>{
       b.x+=b.spd;
@@ -1595,7 +2318,6 @@ function updatePhysics(){
     if(birds.length<5&&Math.random()<.004) spawnBird();
   }
 
-  // airplanes
   if(isDay&&(condition==='clear'||condition==='partly-cloudy')){
     planes.forEach(p=>{
       p.x+=p.spd;
@@ -1606,7 +2328,7 @@ function updatePhysics(){
     if(planes.length<1 && Math.random()<.0008) spawnPlane();
   }
 
-  // stars twinkle
+  // Star twinkle lives here for pixel mode only
   if(!isDay){
     stars.forEach(s=>{
       s.a+=s.spd*(s.a>.9?-1:s.a<.15?1:(Math.random()>.5?1:-1));
@@ -1646,18 +2368,19 @@ window.addEventListener('message', e=>{
   if(m.command==='refreshWeather') fetchWeather().catch(offlineWeather);
   else if(m.command==='simulate')  applySimulate(m.condition,m.night);
   else if(m.command==='updateConfig'){
-    const wasPixel=CFG.pixelMode;
     CFG=m.config;
-    // If pixel mode changed, loop() handles resize on next tick.
-    // Otherwise rebuild trees and HUD immediately.
     if(!CFG.pixelMode){ buildTrees(); }
     updateHUD();
+    updateControlStates();
   }
 });
 
 // ============================================================
 //  BOOT
 // ============================================================
+buildControls();
+buildKeyhint();
+updateWindRose();
 loop();
 if(SIM.condition) applySimulate(SIM.condition,SIM.night);
 else fetchWeather().catch(offlineWeather);
