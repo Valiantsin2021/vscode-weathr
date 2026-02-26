@@ -244,34 +244,6 @@ let clickSplashes=[];   // {x,y,t,type}
 let shootingStars=[];   // {x,y,vx,vy,trail:[],life,maxLife}
 let rainbowAlpha=0, rainbowTarget=0;
 
-// ============================================================
-//  BUILD CONTROL BAR
-// ============================================================
-function buildControls(){
-  const buttons = [
-    { id:'btn-night', icon:'🌙', tip:'Toggle Night (N)', action: ()=>{ isDay=!isDay; initScene(); if(CFG.pixelMode) px_initParticles(); updateHUD(); }},
-    { id:'btn-pixel', icon:'🕹', tip:'Pixel Mode (P)',   action: ()=>{ CFG.pixelMode=!CFG.pixelMode; resize(); if(weatherData){ initScene(); if(CFG.pixelMode) px_initParticles(); } updateHUD(); updateControlStates(); }},
-    { id:'btn-leaves',icon:'🍂', tip:'Toggle Leaves (L)',action: ()=>{ CFG.showLeaves=!CFG.showLeaves; if(!CFG.showLeaves) leaves=[]; updateControlStates(); }},
-    { id:'btn-rain',  icon:'🌧', tip:'Simulate Rain',    action: ()=> applySimulate('rain', !isDay) },
-    { id:'btn-snow',  icon:'❄️', tip:'Simulate Snow',    action: ()=> applySimulate('snow', !isDay) },
-    { id:'btn-storm', icon:'⛈', tip:'Simulate Storm',   action: ()=> applySimulate('thunderstorm', !isDay) },
-    { id:'btn-clear', icon:'☀️', tip:'Simulate Clear',   action: ()=> applySimulate('clear', !isDay) },
-    { id:'btn-fog',   icon:'🌫', tip:'Simulate Fog',     action: ()=> applySimulate('fog', !isDay) },
-    { id:'btn-refresh',icon:'🔄',tip:'Refresh (R)',      action: ()=> fetchWeather().catch(offlineWeather) },
-  ];
-  controls.innerHTML = '';
-  buttons.forEach(b=>{
-    const btn = document.createElement('button');
-    btn.className='ctrl-btn';
-    btn.id=b.id;
-    btn.textContent=b.icon;
-    btn.setAttribute('data-tip', b.tip);
-    btn.addEventListener('click', e=>{ e.stopPropagation(); b.action(); });
-    controls.appendChild(btn);
-  });
-  updateControlStates();
-}
-
 function updateControlStates(){
   const pixelBtn = document.getElementById('btn-pixel');
   const leavesBtn = document.getElementById('btn-leaves');
@@ -1035,7 +1007,7 @@ function spawnFlake(init){
     x: Math.random()*(canvas.width+40)-20,
     y: init ? Math.random()*HY() : -8,
     r: Math.random()*3.5+1,
-    vy:(Math.random()*1.2+.5)*SPD(),
+    vy:(Math.random()*.2+.15)*SPD(),
     vx:(Math.random()-.5)*.8,
     wobble:Math.random()*Math.PI*2,
     wobbleSpd:Math.random()*.06+.02,
@@ -1637,8 +1609,7 @@ function updateHUD(){
   }
   const off=isOffline?'<span class="offline">OFFLINE</span>':'';
   // Interactive hint in HUD
-  const hint='<span style="opacity:.3;font-size:9px;float:right">hover · click · drag · scroll · ?</span>';
-  hud.innerHTML=\`\${off}<span>🌤 \${ct}</span><span>🌡 \${t}</span><span>💨 \${w}</span><span>🌧 \${p}</span>\${loc}\${hint}\`;
+  hud.innerHTML=\`\${off}<span>🌤 \${ct}</span><span>🌡 \${t}</span><span>💨 \${w}</span><span>🌧 \${p}</span>\${loc}\`;
 }
 const fmtT=v=>CFG.temperatureUnit==='fahrenheit'?(v*9/5+32).toFixed(1)+'°F':v.toFixed(1)+'°C';
 const fmtW=v=>{ let r=v,u='km/h'; if(CFG.windSpeedUnit==='ms'){r=v/3.6;u='m/s';}else if(CFG.windSpeedUnit==='mph'){r=v/1.609;u='mph';}else if(CFG.windSpeedUnit==='kn'){r=v*.54;u='kn';} return r.toFixed(1)+' '+u; };
@@ -1697,7 +1668,7 @@ function px_initParticles(){
     const n=condition==='snow-grains'?Math.floor(W/15):Math.floor(W/8);
     for(let i=0;i<n;i++) snowflakes.push({
       x:Math.random()*W, y:Math.random()*hy,
-      r:1, vy:(Math.random()*.4+.15)*SPD(),
+      r:1, vy:(Math.random()*.1+.06)*SPD(),
       vx:(Math.random()-.5)*.25,
       wobble:Math.random()*Math.PI*2,
       wobbleSpd:Math.random()*.04+.01,
@@ -2378,7 +2349,6 @@ window.addEventListener('message', e=>{
 // ============================================================
 //  BOOT
 // ============================================================
-buildControls();
 buildKeyhint();
 updateWindRose();
 loop();
